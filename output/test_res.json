@@ -1,0 +1,156 @@
+{
+    "input_path": "./test.jpg",
+    "page_index": null,
+    "page_count": null,
+    "width": 412,
+    "height": 700,
+    "model_settings": {
+        "use_doc_preprocessor": false,
+        "use_layout_detection": true,
+        "use_chart_recognition": false,
+        "use_seal_recognition": false,
+        "use_ocr_for_image_block": false,
+        "format_block_content": false,
+        "merge_layout_blocks": true,
+        "markdown_ignore_labels": [
+            "number",
+            "footnote",
+            "header",
+            "header_image",
+            "footer",
+            "footer_image",
+            "aside_text"
+        ],
+        "return_layout_polygon_points": true
+    },
+    "parsing_res_list": [
+        {
+            "block_label": "paragraph_title",
+            "block_content": "消渴",
+            "block_bbox": [
+                311,
+                126,
+                346,
+                199
+            ],
+            "block_id": 0,
+            "block_order": 1,
+            "group_id": 0,
+            "block_polygon_points": [
+                [
+                    311.0,
+                    126.0
+                ],
+                [
+                    346.0,
+                    126.0
+                ],
+                [
+                    346.0,
+                    199.0
+                ],
+                [
+                    311.0,
+                    199.0
+                ]
+            ]
+        },
+        {
+            "block_label": "vertical_text",
+            "block_content": "大消渴者上則思飲下則放溺日夜無度也葢由任情假慾飲\n酒過度膾安嗜多或取丹石遲使肾水枯竭心火燔滅三焦\n焰燥五臟乾燥自是而而渴利生焉然其病有三焦之别上\n焦者肺也多飲少食大小便如常此心火燥于肺金而生渴\n也中焦者胃也多飲食而小便貴赤此胃上血熱則消食苦\n肌血中伏火則津液枯燥而生渴也下焦者肾中小便淋濁\n如膏類渴引飲耳輪慘黑小便頻效能食者必啓瘧疽皆瘡",
+            "block_bbox": [
+                19,
+                89,
+                303,
+                659
+            ],
+            "block_id": 1,
+            "block_order": 2,
+            "group_id": 1,
+            "block_polygon_points": [
+                [
+                    19.0,
+                    89.0
+                ],
+                [
+                    303.0,
+                    89.0
+                ],
+                [
+                    303.0,
+                    659.0
+                ],
+                [
+                    19.0,
+                    659.0
+                ]
+            ]
+        }
+    ],
+    "layout_det_res": {
+        "input_path": null,
+        "page_index": null,
+        "boxes": [
+            {
+                "cls_id": 17,
+                "label": "paragraph_title",
+                "score": 0.673027515411377,
+                "coordinate": [
+                    311,
+                    126,
+                    346,
+                    199
+                ],
+                "order": 1,
+                "polygon_points": [
+                    [
+                        311.0,
+                        126.0
+                    ],
+                    [
+                        346.0,
+                        126.0
+                    ],
+                    [
+                        346.0,
+                        199.0
+                    ],
+                    [
+                        311.0,
+                        199.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.9589822292327881,
+                "coordinate": [
+                    19,
+                    89,
+                    303,
+                    659
+                ],
+                "order": 2,
+                "polygon_points": [
+                    [
+                        19.0,
+                        89.0
+                    ],
+                    [
+                        303.0,
+                        89.0
+                    ],
+                    [
+                        303.0,
+                        659.0
+                    ],
+                    [
+                        19.0,
+                        659.0
+                    ]
+                ]
+            }
+        ]
+    }
+}

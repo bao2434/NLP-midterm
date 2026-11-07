@@ -1,0 +1,443 @@
+{
+    "input_path": "./test_2.jpg",
+    "page_index": null,
+    "page_count": null,
+    "width": 412,
+    "height": 700,
+    "model_settings": {
+        "use_doc_preprocessor": false,
+        "use_layout_detection": true,
+        "use_chart_recognition": false,
+        "use_seal_recognition": false,
+        "use_ocr_for_image_block": false,
+        "format_block_content": false,
+        "merge_layout_blocks": true,
+        "markdown_ignore_labels": [
+            "number",
+            "footnote",
+            "header",
+            "header_image",
+            "footer",
+            "footer_image",
+            "aside_text"
+        ],
+        "return_layout_polygon_points": true
+    },
+    "parsing_res_list": [
+        {
+            "block_label": "number",
+            "block_content": "'",
+            "block_bbox": [
+                362,
+                570,
+                373,
+                601
+            ],
+            "block_id": 0,
+            "block_order": null,
+            "group_id": 0,
+            "block_polygon_points": [
+                [
+                    362.0,
+                    570.0
+                ],
+                [
+                    372.0,
+                    570.0
+                ],
+                [
+                    372.0,
+                    600.0
+                ],
+                [
+                    362.0,
+                    600.0
+                ]
+            ]
+        },
+        {
+            "block_label": "vertical_text",
+            "block_content": "一經治盜汗神方\n牡蠣為末\n辣毒丸如梧子\n大畚服十丸\n溫酒\n送下\n又經方\n豆殼微炒酒後任服",
+            "block_bbox": [
+                271,
+                74,
+                348,
+                658
+            ],
+            "block_id": 1,
+            "block_order": 1,
+            "group_id": 1,
+            "block_polygon_points": [
+                [
+                    271.0,
+                    74.0
+                ],
+                [
+                    348.0,
+                    74.0
+                ],
+                [
+                    348.0,
+                    658.0
+                ],
+                [
+                    271.0,
+                    658.0
+                ]
+            ]
+        },
+        {
+            "block_label": "vertical_text",
+            "block_content": "一經治人全身無汗惟心胸一處汗出不止此因思慮而得名\n曰心汗\n後神為末用艾葉煎湯調下效服立愈",
+            "block_bbox": [
+                187,
+                83,
+                264,
+                654
+            ],
+            "block_id": 2,
+            "block_order": 2,
+            "group_id": 2,
+            "block_polygon_points": [
+                [
+                    187.91598510742188,
+                    82.4731216430664
+                ],
+                [
+                    263.0000305175781,
+                    83.0
+                ],
+                [
+                    259.0000305175781,
+                    653.0
+                ],
+                [
+                    183.91598510742188,
+                    652.47314453125
+                ]
+            ]
+        },
+        {
+            "block_label": "vertical_text",
+            "block_content": "又傳方\n毫胆為末\n每服一勺\n猪胆汁\n二三点\n入溫酒\n服效",
+            "block_bbox": [
+                145,
+                78,
+                179,
+                624
+            ],
+            "block_id": 3,
+            "block_order": 3,
+            "group_id": 3,
+            "block_polygon_points": [
+                [
+                    145.0,
+                    78.0
+                ],
+                [
+                    179.0,
+                    78.0
+                ],
+                [
+                    179.0,
+                    624.0
+                ],
+                [
+                    145.0,
+                    624.0
+                ]
+            ]
+        },
+        {
+            "block_label": "vertical_text",
+            "block_content": "又經方、並兼每用四十九根水二升煎至半頓服以愈為度\n一傳方寒熱汗、柔葉經霜者為末每服一升米飯調下日三服",
+            "block_bbox": [
+                40,
+                79,
+                157,
+                661
+            ],
+            "block_id": 4,
+            "block_order": 4,
+            "group_id": 4,
+            "block_polygon_points": [
+                [
+                    65.0,
+                    79.0
+                ],
+                [
+                    61.0,
+                    250.0
+                ],
+                [
+                    40.0,
+                    437.0
+                ],
+                [
+                    40.0,
+                    657.0
+                ],
+                [
+                    136.0,
+                    660.0
+                ],
+                [
+                    142.0,
+                    657.0
+                ],
+                [
+                    142.0,
+                    139.0
+                ],
+                [
+                    154.0,
+                    90.0
+                ],
+                [
+                    150.0,
+                    79.0
+                ]
+            ]
+        }
+    ],
+    "layout_det_res": {
+        "input_path": null,
+        "page_index": null,
+        "boxes": [
+            {
+                "cls_id": 16,
+                "label": "number",
+                "score": 0.45705682039260864,
+                "coordinate": [
+                    362,
+                    570,
+                    373,
+                    601
+                ],
+                "order": 1,
+                "polygon_points": [
+                    [
+                        362.0,
+                        570.0
+                    ],
+                    [
+                        372.0,
+                        570.0
+                    ],
+                    [
+                        372.0,
+                        600.0
+                    ],
+                    [
+                        362.0,
+                        600.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.7784853577613831,
+                "coordinate": [
+                    271,
+                    74,
+                    348,
+                    658
+                ],
+                "order": 2,
+                "polygon_points": [
+                    [
+                        271.0,
+                        74.0
+                    ],
+                    [
+                        348.0,
+                        74.0
+                    ],
+                    [
+                        348.0,
+                        658.0
+                    ],
+                    [
+                        271.0,
+                        658.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.7590470314025879,
+                "coordinate": [
+                    187,
+                    83,
+                    264,
+                    654
+                ],
+                "order": 3,
+                "polygon_points": [
+                    [
+                        187.91598510742188,
+                        82.4731216430664
+                    ],
+                    [
+                        263.0000305175781,
+                        83.0
+                    ],
+                    [
+                        259.0000305175781,
+                        653.0
+                    ],
+                    [
+                        183.91598510742188,
+                        652.47314453125
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.5422974824905396,
+                "coordinate": [
+                    145,
+                    78,
+                    179,
+                    624
+                ],
+                "order": 4,
+                "polygon_points": [
+                    [
+                        145.0,
+                        78.0
+                    ],
+                    [
+                        179.0,
+                        78.0
+                    ],
+                    [
+                        179.0,
+                        624.0
+                    ],
+                    [
+                        145.0,
+                        624.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.3004013001918793,
+                "coordinate": [
+                    102,
+                    79,
+                    138,
+                    661
+                ],
+                "order": 5,
+                "polygon_points": [
+                    [
+                        104.00040435791016,
+                        78.88581085205078
+                    ],
+                    [
+                        137.0,
+                        78.99993896484375
+                    ],
+                    [
+                        134.99960327148438,
+                        657.1143188476562
+                    ],
+                    [
+                        102.00000762939453,
+                        657.0001831054688
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.4206836223602295,
+                "coordinate": [
+                    40,
+                    79,
+                    157,
+                    661
+                ],
+                "order": 6,
+                "polygon_points": [
+                    [
+                        65.0,
+                        79.0
+                    ],
+                    [
+                        61.0,
+                        250.0
+                    ],
+                    [
+                        40.0,
+                        437.0
+                    ],
+                    [
+                        40.0,
+                        657.0
+                    ],
+                    [
+                        136.0,
+                        660.0
+                    ],
+                    [
+                        142.0,
+                        657.0
+                    ],
+                    [
+                        142.0,
+                        139.0
+                    ],
+                    [
+                        154.0,
+                        90.0
+                    ],
+                    [
+                        150.0,
+                        79.0
+                    ]
+                ]
+            },
+            {
+                "cls_id": 23,
+                "label": "vertical_text",
+                "score": 0.3025626540184021,
+                "coordinate": [
+                    57,
+                    76,
+                    98,
+                    661
+                ],
+                "order": 7,
+                "polygon_points": [
+                    [
+                        68.0,
+                        76.0
+                    ],
+                    [
+                        57.0,
+                        364.0
+                    ],
+                    [
+                        57.0,
+                        653.0
+                    ],
+                    [
+                        91.0,
+                        657.0
+                    ],
+                    [
+                        97.0,
+                        80.0
+                    ]
+                ]
+            }
+        ]
+    }
+}
