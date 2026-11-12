@@ -1,0 +1,1 @@
+from .PaddleOCR_Tool import PaddleOCR_Tool
