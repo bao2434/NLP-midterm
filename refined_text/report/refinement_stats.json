@@ -1,0 +1,116 @@
+{
+  "Linh khởi điểm học trung y_ đái nhĩ thể nghiệm trung y đích 12 đường khóa_resolved.txt": {
+    "input_lines": 393,
+    "input_chars": 139465,
+    "front_matter_pages_removed": 12,
+    "back_matter_pages_removed": 5,
+    "headers_footers_removed": 2,
+    "garbage_tokens_cleaned": 74,
+    "punctuation_ws_normalized_lines": 7,
+    "page_break_merges": 90,
+    "output_lines": 87,
+    "output_chars": 131831
+  },
+  "Pho_Thanh_Chu_Nu_Khoa.txt": {
+    "input_lines": 3675,
+    "input_chars": 54204,
+    "inline_footnote_markers_removed": 10,
+    "punctuation_ws_normalized_lines": 61,
+    "footnote_lines_removed": 21,
+    "garbage_tokens_cleaned": 72,
+    "duplicate_lines_removed": 2,
+    "output_lines": 3640,
+    "output_chars": 53295
+  },
+  "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q10_resolved.txt": {
+    "input_lines": 261,
+    "input_chars": 22847,
+    "front_matter_pages_removed": 1,
+    "garbage_tokens_cleaned": 11,
+    "headers_footers_removed": 19,
+    "page_break_merges": 104,
+    "output_lines": 26,
+    "output_chars": 22586
+  },
+  "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5_resolved.txt": {
+    "input_lines": 101,
+    "input_chars": 7855,
+    "garbage_tokens_cleaned": 4,
+    "headers_footers_removed": 1,
+    "page_break_merges": 41,
+    "output_lines": 10,
+    "output_chars": 7769
+  },
+  "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q6_resolved.txt": {
+    "input_lines": 299,
+    "input_chars": 22950,
+    "garbage_tokens_cleaned": 21,
+    "page_break_merges": 109,
+    "output_lines": 41,
+    "output_chars": 22712
+  },
+  "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q8_resolved.txt": {
+    "input_lines": 223,
+    "input_chars": 19852,
+    "front_matter_pages_removed": 1,
+    "garbage_tokens_cleaned": 11,
+    "headers_footers_removed": 2,
+    "page_break_merges": 90,
+    "output_lines": 21,
+    "output_chars": 19654
+  },
+  "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q9_resolved.txt": {
+    "input_lines": 259,
+    "input_chars": 21309,
+    "front_matter_pages_removed": 2,
+    "garbage_tokens_cleaned": 13,
+    "headers_footers_removed": 1,
+    "page_break_merges": 105,
+    "output_lines": 23,
+    "output_chars": 20978
+  },
+  "nam-duoc-than-hieu-pdf.txt": {
+    "input_lines": 12141,
+    "input_chars": 1051267,
+    "front_matter_lines_removed": 75,
+    "back_matter_lines_removed": 382,
+    "headers_footers_removed": 78,
+    "footnote_lines_removed": 125,
+    "tables_figures_lines_removed": 25,
+    "non_main_content_lines_removed": 41,
+    "garbage_tokens_cleaned": 4495,
+    "inline_footnote_markers_removed": 199,
+    "punctuation_ws_normalized_lines": 288,
+    "duplicate_lines_removed": 5,
+    "page_break_merges": 36,
+    "output_lines": 11338,
+    "output_chars": 1002115
+  },
+  "nam_khoa_nu_khoa.txt": {
+    "input_lines": 3356,
+    "input_chars": 258055,
+    "front_matter_lines_removed": 1,
+    "back_matter_and_endnotes_lines_removed": 487,
+    "inline_footnote_markers_removed": 399,
+    "garbage_tokens_cleaned": 95,
+    "cross_script_tokens_removed": 1398,
+    "punctuation_ws_normalized_lines": 333,
+    "headers_footers_removed": 83,
+    "duplicate_lines_removed": 1,
+    "output_lines": 2671,
+    "output_chars": 216036
+  },
+  "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua_resolved.txt": {
+    "input_lines": 531,
+    "input_chars": 301500,
+    "front_matter_pages_removed": 8,
+    "back_matter_and_table_appendix_pages_removed": 30,
+    "garbage_tokens_cleaned": 15,
+    "punctuation_ws_normalized_lines": 35,
+    "tables_figures_lines_removed": 5,
+    "inline_footnote_markers_removed": 99,
+    "page_break_merges": 116,
+    "output_lines": 111,
+    "output_chars": 265202
+  }
+}
