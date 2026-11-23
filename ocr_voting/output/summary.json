@@ -1,0 +1,170 @@
+[
+  {
+    "doc_name": "Linh khởi điểm học trung y_ đái nhĩ thể nghiệm trung y đích 12 đường khóa.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.6026,
+      "ocr_hunyuang": 1.1986,
+      "ocr_paddle": 1.1989
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 197,
+    "total_columns": 139856,
+    "unanimous_columns": 46135,
+    "high_confidence_disagreement_columns": 93354,
+    "low_confidence_disagreement_columns": 367,
+    "agreement_rate": 0.329875,
+    "avg_confidence": 0.863166,
+    "total_disagreement_entries": 7463,
+    "high_confidence_entries": 7340,
+    "low_confidence_entries": 123
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q10.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.9742,
+      "ocr_hunyuang": 1.0245,
+      "ocr_paddle": 1.0014
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 131,
+    "total_columns": 22728,
+    "unanimous_columns": 16587,
+    "high_confidence_disagreement_columns": 4660,
+    "low_confidence_disagreement_columns": 1481,
+    "agreement_rate": 0.729805,
+    "avg_confidence": 0.889419,
+    "total_disagreement_entries": 4393,
+    "high_confidence_entries": 3070,
+    "low_confidence_entries": 1323
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.9734,
+      "ocr_hunyuang": 1.0286,
+      "ocr_paddle": 0.998
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 51,
+    "total_columns": 7826,
+    "unanimous_columns": 5517,
+    "high_confidence_disagreement_columns": 1708,
+    "low_confidence_disagreement_columns": 601,
+    "agreement_rate": 0.704958,
+    "avg_confidence": 0.87758,
+    "total_disagreement_entries": 1625,
+    "high_confidence_entries": 1097,
+    "low_confidence_entries": 528
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q6.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.9745,
+      "ocr_hunyuang": 1.0267,
+      "ocr_paddle": 0.9988
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 150,
+    "total_columns": 22777,
+    "unanimous_columns": 16539,
+    "high_confidence_disagreement_columns": 4780,
+    "low_confidence_disagreement_columns": 1458,
+    "agreement_rate": 0.726127,
+    "avg_confidence": 0.888666,
+    "total_disagreement_entries": 4621,
+    "high_confidence_entries": 3287,
+    "low_confidence_entries": 1334
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q8.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.9691,
+      "ocr_hunyuang": 1.0287,
+      "ocr_paddle": 1.0022
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 112,
+    "total_columns": 19783,
+    "unanimous_columns": 13728,
+    "high_confidence_disagreement_columns": 4367,
+    "low_confidence_disagreement_columns": 1688,
+    "agreement_rate": 0.693929,
+    "avg_confidence": 0.871265,
+    "total_disagreement_entries": 4008,
+    "high_confidence_entries": 2568,
+    "low_confidence_entries": 1440
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q9.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.9725,
+      "ocr_hunyuang": 1.0276,
+      "ocr_paddle": 0.9999
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 130,
+    "total_columns": 21203,
+    "unanimous_columns": 15061,
+    "high_confidence_disagreement_columns": 4602,
+    "low_confidence_disagreement_columns": 1540,
+    "agreement_rate": 0.710324,
+    "avg_confidence": 0.880689,
+    "total_disagreement_entries": 4295,
+    "high_confidence_entries": 2941,
+    "low_confidence_entries": 1354
+  },
+  {
+    "doc_name": "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_weights": {
+      "ocr_api": 0.1657,
+      "ocr_hunyuang": 1.4152,
+      "ocr_paddle": 1.4191
+    },
+    "confidence_threshold": 0.5,
+    "total_blocks": 266,
+    "total_columns": 303967,
+    "unanimous_columns": 15579,
+    "high_confidence_disagreement_columns": 282543,
+    "low_confidence_disagreement_columns": 5845,
+    "agreement_rate": 0.051252,
+    "avg_confidence": 0.931368,
+    "total_disagreement_entries": 6784,
+    "high_confidence_entries": 5183,
+    "low_confidence_entries": 1601
+  }
+]

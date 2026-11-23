@@ -1,0 +1,135 @@
+[
+  {
+    "doc_name": "Linh khởi điểm học trung y_ đái nhĩ thể nghiệm trung y đích 12 đường khóa.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.6026,
+      "ocr_hunyuang": 1.1986,
+      "ocr_paddle": 1.1989
+    },
+    "total_conflicts": 7463,
+    "all_agree": 0,
+    "two_agree": 7295,
+    "all_disagree": 168,
+    "changed_from_voted": 54,
+    "needs_review": 168
+  },
+  {
+    "doc_name": "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.1657,
+      "ocr_hunyuang": 1.4152,
+      "ocr_paddle": 1.4191
+    },
+    "total_conflicts": 6784,
+    "all_agree": 0,
+    "two_agree": 4938,
+    "all_disagree": 1846,
+    "changed_from_voted": 359,
+    "needs_review": 1846
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q10.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.9742,
+      "ocr_hunyuang": 1.0245,
+      "ocr_paddle": 1.0014
+    },
+    "total_conflicts": 4393,
+    "all_agree": 0,
+    "two_agree": 2699,
+    "all_disagree": 1694,
+    "changed_from_voted": 292,
+    "needs_review": 1694
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.9734,
+      "ocr_hunyuang": 1.0286,
+      "ocr_paddle": 0.998
+    },
+    "total_conflicts": 1625,
+    "all_agree": 0,
+    "two_agree": 974,
+    "all_disagree": 651,
+    "changed_from_voted": 88,
+    "needs_review": 651
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q6.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.9745,
+      "ocr_hunyuang": 1.0267,
+      "ocr_paddle": 0.9988
+    },
+    "total_conflicts": 4621,
+    "all_agree": 0,
+    "two_agree": 2951,
+    "all_disagree": 1670,
+    "changed_from_voted": 236,
+    "needs_review": 1670
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q8.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.9691,
+      "ocr_hunyuang": 1.0287,
+      "ocr_paddle": 1.0022
+    },
+    "total_conflicts": 4008,
+    "all_agree": 0,
+    "two_agree": 2273,
+    "all_disagree": 1735,
+    "changed_from_voted": 271,
+    "needs_review": 1735
+  },
+  {
+    "doc_name": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q9.txt",
+    "models": [
+      "ocr_api",
+      "ocr_hunyuang",
+      "ocr_paddle"
+    ],
+    "model_confidences": {
+      "ocr_api": 0.9725,
+      "ocr_hunyuang": 1.0276,
+      "ocr_paddle": 0.9999
+    },
+    "total_conflicts": 4295,
+    "all_agree": 0,
+    "two_agree": 2586,
+    "all_disagree": 1709,
+    "changed_from_voted": 266,
+    "needs_review": 1709
+  }
+]
