@@ -15,7 +15,9 @@
       "audit_records": 103,
       "review_items": 0,
       "sentences_count": 4853,
-      "split_boundaries_count": 4852
+      "split_boundaries_count": 4852,
+      "mean_sentence_len": 27.1,
+      "max_sentence_len": 135
     },
     "Pho_Thanh_Chu_Nu_Khoa.txt": {
       "input_lines": 3675,
@@ -24,13 +26,16 @@
       "inline_footnote_markers_removed": 10,
       "footnote_lines_removed": 21,
       "garbage_tokens_cleaned": 72,
-      "output_lines": 3644,
-      "output_chars": 53318,
+      "cjk_fragment_merges": 22,
+      "output_lines": 3601,
+      "output_chars": 53275,
       "file_modified": true,
-      "audit_records": 164,
+      "audit_records": 186,
       "review_items": 0,
-      "sentences_count": 3128,
-      "split_boundaries_count": 3127
+      "sentences_count": 3096,
+      "split_boundaries_count": 3095,
+      "mean_sentence_len": 16.0,
+      "max_sentence_len": 108
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q10_resolved.txt": {
       "input_lines": 261,
@@ -44,8 +49,10 @@
       "file_modified": true,
       "audit_records": 135,
       "review_items": 11,
-      "sentences_count": 32,
-      "split_boundaries_count": 31
+      "sentences_count": 677,
+      "split_boundaries_count": 676,
+      "mean_sentence_len": 33.4,
+      "max_sentence_len": 234
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5_resolved.txt": {
       "input_lines": 101,
@@ -58,8 +65,10 @@
       "file_modified": true,
       "audit_records": 46,
       "review_items": 4,
-      "sentences_count": 10,
-      "split_boundaries_count": 9
+      "sentences_count": 201,
+      "split_boundaries_count": 200,
+      "mean_sentence_len": 38.7,
+      "max_sentence_len": 157
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q6_resolved.txt": {
       "input_lines": 299,
@@ -71,8 +80,10 @@
       "file_modified": true,
       "audit_records": 130,
       "review_items": 21,
-      "sentences_count": 49,
-      "split_boundaries_count": 48
+      "sentences_count": 701,
+      "split_boundaries_count": 700,
+      "mean_sentence_len": 32.5,
+      "max_sentence_len": 171
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q8_resolved.txt": {
       "input_lines": 223,
@@ -86,8 +97,10 @@
       "file_modified": true,
       "audit_records": 104,
       "review_items": 11,
-      "sentences_count": 43,
-      "split_boundaries_count": 42
+      "sentences_count": 563,
+      "split_boundaries_count": 562,
+      "mean_sentence_len": 35.0,
+      "max_sentence_len": 525
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q9_resolved.txt": {
       "input_lines": 259,
@@ -101,8 +114,10 @@
       "file_modified": true,
       "audit_records": 121,
       "review_items": 13,
-      "sentences_count": 27,
-      "split_boundaries_count": 26
+      "sentences_count": 571,
+      "split_boundaries_count": 570,
+      "mean_sentence_len": 36.8,
+      "max_sentence_len": 388
     },
     "nam-duoc-than-hieu-pdf.txt": {
       "input_lines": 12141,
@@ -125,7 +140,9 @@
       "audit_records": 4046,
       "review_items": 19,
       "sentences_count": 13480,
-      "split_boundaries_count": 13479
+      "split_boundaries_count": 13479,
+      "mean_sentence_len": 73.3,
+      "max_sentence_len": 689
     },
     "nam_khoa_nu_khoa.txt": {
       "input_lines": 3356,
@@ -137,14 +154,17 @@
       "inline_footnote_markers_removed": 380,
       "punctuation_ws_normalized_lines": 333,
       "headers_footers_removed": 83,
+      "possible_decorative_noise_flagged": 17,
       "possible_footnotes_flagged": 19,
       "output_lines": 2672,
       "output_chars": 216143,
       "file_modified": true,
-      "audit_records": 2205,
-      "review_items": 19,
+      "audit_records": 2222,
+      "review_items": 36,
       "sentences_count": 3553,
-      "split_boundaries_count": 3552
+      "split_boundaries_count": 3552,
+      "mean_sentence_len": 59.8,
+      "max_sentence_len": 374
     },
     "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua_resolved.txt": {
       "input_lines": 531,
@@ -161,14 +181,17 @@
       "file_modified": true,
       "audit_records": 271,
       "review_items": 0,
-      "sentences_count": 8426,
-      "split_boundaries_count": 8425
+      "sentences_count": 8427,
+      "split_boundaries_count": 8426,
+      "mean_sentence_len": 31.5,
+      "max_sentence_len": 365
     }
   },
   "verification": {
     "Linh khởi điểm học trung y_ đái nhĩ thể nghiệm trung y đích 12 đường khóa_resolved.txt": {
       "file": "Linh khởi điểm học trung y_ đái nhĩ thể nghiệm trung y đích 12 đường khóa_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9453,
       "issues": [],
@@ -178,13 +201,27 @@
       "mask_tokens": 0,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 4853,
+        "boundaries_count": 4852,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 27.1,
+        "max_sentence_len": 135,
+        "sentences_over_300_chars": 0,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "Pho_Thanh_Chu_Nu_Khoa.txt": {
       "file": "Pho_Thanh_Chu_Nu_Khoa.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
-      "retention_ratio": 0.9837,
+      "retention_ratio": 0.9829,
       "issues": [],
       "vn_words_remaining": 0,
       "bopomofo_kana_raw": 0,
@@ -192,11 +229,25 @@
       "mask_tokens": 0,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 3096,
+        "boundaries_count": 3095,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 16.0,
+        "max_sentence_len": 108,
+        "sentences_over_300_chars": 0,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q10_resolved.txt": {
       "file": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q10_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9915,
       "issues": [],
@@ -206,11 +257,25 @@
       "mask_tokens": 11,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 677,
+        "boundaries_count": 676,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 33.4,
+        "max_sentence_len": 234,
+        "sentences_over_300_chars": 0,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5_resolved.txt": {
       "file": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9921,
       "issues": [],
@@ -220,11 +285,25 @@
       "mask_tokens": 4,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 201,
+        "boundaries_count": 200,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 38.7,
+        "max_sentence_len": 157,
+        "sentences_over_300_chars": 0,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q6_resolved.txt": {
       "file": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q6_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9951,
       "issues": [],
@@ -234,11 +313,25 @@
       "mask_tokens": 21,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 701,
+        "boundaries_count": 700,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 32.5,
+        "max_sentence_len": 171,
+        "sentences_over_300_chars": 0,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q8_resolved.txt": {
       "file": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q8_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9934,
       "issues": [],
@@ -248,11 +341,25 @@
       "mask_tokens": 11,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 563,
+        "boundaries_count": 562,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 35.0,
+        "max_sentence_len": 525,
+        "sentences_over_300_chars": 1,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q9_resolved.txt": {
       "file": "Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q9_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9881,
       "issues": [],
@@ -262,11 +369,25 @@
       "mask_tokens": 13,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 571,
+        "boundaries_count": 570,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 36.8,
+        "max_sentence_len": 388,
+        "sentences_over_300_chars": 1,
+        "status": "PASS",
+        "issues": []
+      }
     },
     "nam-duoc-than-hieu-pdf.txt": {
       "file": "nam-duoc-than-hieu-pdf.txt",
       "lang": "vi",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.9535,
       "issues": [],
@@ -276,11 +397,27 @@
       "mask_tokens": 0,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 13480,
+        "boundaries_count": 13479,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 2,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 73.3,
+        "max_sentence_len": 689,
+        "sentences_over_300_chars": 87,
+        "status": "WARN",
+        "issues": [
+          "2 isolated punctuation-only sentence(s)"
+        ]
+      }
     },
     "nam_khoa_nu_khoa.txt": {
       "file": "nam_khoa_nu_khoa.txt",
       "lang": "vi",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.8376,
       "issues": [],
@@ -290,11 +427,27 @@
       "mask_tokens": 0,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 3553,
+        "boundaries_count": 3552,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 10,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 59.8,
+        "max_sentence_len": 374,
+        "sentences_over_300_chars": 11,
+        "status": "WARN",
+        "issues": [
+          "10 isolated punctuation-only sentence(s)"
+        ]
+      }
     },
     "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua_resolved.txt": {
       "file": "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua_resolved.txt",
       "lang": "cjk",
+      "verification_scope": "structural",
       "changed": true,
       "retention_ratio": 0.8812,
       "issues": [],
@@ -304,7 +457,20 @@
       "mask_tokens": 0,
       "latex_symbols_remaining": 0,
       "watermark_urls_remaining": 0,
-      "status": "PASS"
+      "status": "PASS",
+      "segmentation": {
+        "sentences_count": 8427,
+        "boundaries_count": 8426,
+        "offset_mismatches": 0,
+        "bad_boundaries": 0,
+        "isolated_punct": 0,
+        "isolated_intro_fragments": 0,
+        "mean_sentence_len": 31.5,
+        "max_sentence_len": 365,
+        "sentences_over_300_chars": 1,
+        "status": "PASS",
+        "issues": []
+      }
     }
   },
   "written_files": [
@@ -320,6 +486,6 @@
     "phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua_resolved.txt"
   ],
   "skipped_unchanged_files": [],
-  "total_audit_records": 7325,
-  "total_review_items": 98
+  "total_audit_records": 7364,
+  "total_review_items": 115
 }

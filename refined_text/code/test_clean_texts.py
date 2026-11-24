@@ -121,6 +121,103 @@ class TestPreprocessingFixes(unittest.TestCase):
         self.assertNotIn("表3抵当汤", out)
         self.assertNotIn("表5历代衡量", out)
 
+    def test_p09_cross_script_filtering_audited(self):
+        """P09: Han-Nom removed from VN text and VN diacritic words removed from CJK text, preserving units."""
+        stats_vn = defaultdict(int)
+        audit_vn = ct.AuditLogger("test_p09_vn.txt")
+        vn_out = ct.strip_han_nom_in_vn("Bài thuốc 養精種玉湯 rất công hiệu.", stats_vn, audit=audit_vn, line_no=5)
+        self.assertEqual(vn_out, "Bài thuốc rất công hiệu.")
+        self.assertEqual(ct.HAN_NOM_RE.findall(vn_out), [])
+        self.assertEqual(audit_vn.records[0].rule_id, "CROSS_SCRIPT_HAN_IN_VN")
+
+        stats_cjk = defaultdict(int)
+        audit_cjk = ct.AuditLogger("test_p09_cjk.txt")
+        cjk_out = ct.strip_vietnamese_in_cjk("白朮 10g 煎服 thuốc nam 100ml 37°C", stats_cjk, audit=audit_cjk, line_no=8)
+        self.assertNotIn("thuốc", cjk_out)
+        self.assertIn("10g", cjk_out)
+        self.assertIn("100ml", cjk_out)
+        self.assertIn("37°C", cjk_out)
+        self.assertEqual(ct.VN_DIAC_WORD_RE.findall(cjk_out), [])
+        self.assertEqual(audit_cjk.records[0].rule_id, "CROSS_SCRIPT_VN_IN_CJK")
+
+    def test_p10_vn_merge_protects_headings_and_dosages(self):
+        """P10: VN merge joins wrapped prose across breaks but protects headings, numbered items, and dosages."""
+        sample = (
+            "QUYỂN ĐẦU\n"
+            "Bệnh này phát sinh do khí huyết hư nhược lâu ngày khiến cho cơ thể suy yếu\n"
+            "và cần phải điều trị kịp thời theo đúng phương pháp.\n"
+            "THỤC ĐỊA\n"
+            "3 đồng cân.\n"
+            "1. Bài thuốc thứ nhất chữa chứng đau đầu.\n"
+        )
+        audit = ct.AuditLogger("test_p10.txt")
+        out, stats = ct.process_nam_duoc_than_hieu(sample, audit=audit)
+        self.assertIn("khiến cho cơ thể suy yếu và cần phải điều trị kịp thời", out)
+        self.assertIn("THỤC ĐỊA\n3 đồng cân.\n1. Bài thuốc thứ nhất", out)
+        self.assertGreaterEqual(stats["page_break_merges"], 1)
+        merge_recs = [r for r in audit.records if r.rule_id in ("VN_LINE_WRAP_MERGE", "VN_PAGE_BREAK_MERGE")]
+        self.assertGreaterEqual(len(merge_recs), 1)
+
+    def test_pho_thanh_chu_fragment_merging(self):
+        """Post-review: '方用\\n並提湯\\n。' and '歌括：\\n\\n...' must merge into complete units."""
+        sample = (
+            "方用\n"
+            "並提湯\n"
+            "。\n\n"
+            "歌括：\n\n"
+            "婦人瘦弱不孕生，肝木虛燥腎水空。\n"
+        )
+        audit = ct.AuditLogger("Pho_Thanh_Chu_Nu_Khoa.txt")
+        out, stats = ct.process_pho_thanh_chu(sample, audit=audit)
+        self.assertIn("方用並提湯。", out)
+        self.assertIn("歌括：婦人瘦弱不孕生，肝木虛燥腎水空。", out)
+        sents, bounds = ct.segment_sentences(out, "cjk")
+        seg_ver = ct.verify_segmentation(out, sents, bounds, "cjk")
+        self.assertEqual(seg_ver["status"], "PASS")
+        self.assertEqual(seg_ver["offset_mismatches"], 0)
+        self.assertEqual(seg_ver["isolated_punct"], 0)
+        self.assertEqual(seg_ver["isolated_intro_fragments"], 0)
+        self.assertEqual(stats["cjk_fragment_merges"], 2)
+
+    def test_unpunctuated_classical_cjk_semantic_segmentation(self):
+        """Post-review: Long unpunctuated Han-Nom/Classical Chinese spans split on recipe/section boundaries with exact offsets."""
+        sample = (
+            "汗症夫汗者血之異名內則為津液為血外則為汗有陽虛而自汗者有陰虛而盜汗者宜採方而治之"
+            "一經治冷風出汗荊芥水煎服取效"
+            "一方治自汗不止鬱金水磨塗乳上乃止"
+            "又經方何首烏為末以津液貼臍中乃止"
+            "又經方白粳米研成粉以絹包頻撲之大效"
+        )
+        sents, bounds = ct.segment_sentences(sample, "cjk")
+        self.assertEqual(len(sents), 5)
+        self.assertTrue(sents[1]["text"].startswith("一經治冷風出汗"))
+        self.assertTrue(sents[2]["text"].startswith("一方治自汗不止"))
+        self.assertTrue(sents[3]["text"].startswith("又經方何首烏"))
+        self.assertTrue(sents[4]["text"].startswith("又經方白粳米"))
+        seg_ver = ct.verify_segmentation(sample, sents, bounds, "cjk")
+        self.assertEqual(seg_ver["status"], "PASS")
+        self.assertEqual(seg_ver["offset_mismatches"], 0)
+        self.assertEqual(len(bounds), 4)
+        for b in bounds:
+            self.assertEqual(len(b["prev_4"]), 4)
+            self.assertEqual(len(b["next_4"]), 4)
+
+    def test_decorative_noise_detection_conservative(self):
+        """Post-review: Decorative OCR lines flagged as POSSIBLE_DECORATIVE_NOISE without deletion; real short words protected."""
+        for noisy in [",,", ",", "o()o", "cOo", "Oo", "O O", "-00o"]:
+            self.assertTrue(ct.is_possible_decorative_noise_vn(noisy), f"Should flag {noisy!r}")
+        for valid in ["TÀ", "LÝ", "Ôi!", "Tì:", "Vị:", "I", "II", "IV", "XX", "Rễ hẹ"]:
+            self.assertFalse(ct.is_possible_decorative_noise_vn(valid), f"Must NOT flag {valid!r}")
+
+        sample = "Phương thuốc này rất hay.\no()o\n,\nBÀO Y BẤT HẠ\n"
+        audit = ct.AuditLogger("nam_khoa_nu_khoa.txt")
+        out, stats = ct.process_nam_khoa_nu_khoa(sample, audit=audit)
+        # Lines preserved (not blindly deleted) and queued for human review
+        self.assertIn("o()o", out)
+        self.assertEqual(stats["possible_decorative_noise_flagged"], 2)
+        flagged = [r for r in audit.review_items() if r.review_status == "POSSIBLE_DECORATIVE_NOISE"]
+        self.assertEqual(len(flagged), 2)
+
     def test_p11_unchanged_file_not_written(self):
         """P11: Files that require no changes must NOT be written to output_dir."""
         with tempfile.TemporaryDirectory() as tmp:

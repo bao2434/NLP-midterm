@@ -57,7 +57,7 @@ class AuditRecord:
     before: str
     after: str
     reason: str
-    review_status: str = "AUTO_APPLIED"  # AUTO_APPLIED | NEEDS_REVIEW | POSSIBLE_DUPLICATE | POSSIBLE_FOOTNOTE | AMBIGUOUS_MERGE
+    review_status: str = "AUTO_APPLIED"  # AUTO_APPLIED | NEEDS_REVIEW | POSSIBLE_DUPLICATE | POSSIBLE_FOOTNOTE | POSSIBLE_DECORATIVE_NOISE | AMBIGUOUS_MERGE
 
 
 class AuditLogger:
@@ -614,6 +614,31 @@ def is_ndth_footnote_line(s: str) -> bool:
     return False
 
 
+def is_possible_decorative_noise_vn(s: str) -> bool:
+    """
+    Conservatively detect candidate decorative/OCR noise lines in Vietnamese text
+    (e.g. ',,', ',', 'o()o', 'cOo', 'Oo', 'O O', '-00o') without blindly deleting them.
+    Protects real Vietnamese words (with diacritics/letters) and Roman numerals (I, II, IV, X...).
+    """
+    st = s.strip()
+    if not st or len(st) > 12:
+        return False
+    # Never flag lines containing Vietnamese diacritic letters or normal words (>= 2 letters outside o/O/c/C)
+    if re.search(r"[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
+                 r"ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]", st):
+        return False
+    # Never flag Roman numeral section headings (I, II, IV, V, VI, IX, X, XI, XV, XX...)
+    if re.fullmatch(r"[IVXLCDM]+", st):
+        return False
+    # 1. Pure punctuation / symbol lines (e.g. ',', ',,', '...', '--')
+    if re.fullmatch(r"[\s.,;:'\"\-–—_~=+*/\\|()\[\]{}·•]+", st):
+        return True
+    # 2. OCR variants of 'oOo' decorative dividers (e.g. 'o()o', 'cOo', 'Oo', 'O O', '-00o')
+    if re.fullmatch(r"[\s\-–—_.,()\[\]oO0cC*·•]+", st) and re.search(r"[oO0]", st):
+        return True
+    return False
+
+
 def is_vn_heading_or_item(s: str) -> bool:
     """Check if a Vietnamese line should NOT be merged onto the previous line."""
     if not s:
@@ -762,6 +787,19 @@ def process_nam_duoc_than_hieu(
             continue
         s = normalize_punctuation_vn(s, stats, audit=audit, line_no=line_no)
         if s:
+            if is_possible_decorative_noise_vn(s):
+                stats["possible_decorative_noise_flagged"] += 1
+                if audit is not None:
+                    audit.log(
+                        rule_id="POSSIBLE_DECORATIVE_NOISE",
+                        original_line=line_no,
+                        original_start=0,
+                        original_end=len(s),
+                        before=s,
+                        after=s,
+                        reason="Candidate decorative/OCR noise line preserved and queued for human review",
+                        review_status="POSSIBLE_DECORATIVE_NOISE",
+                    )
             cleaned.append((line_no, s))
 
     # 5. Safe deduplication (P01 & P02 fixed)
@@ -921,6 +959,19 @@ def process_nam_khoa_nu_khoa(
             continue
         s = normalize_punctuation_vn(s, stats, audit=audit, line_no=line_no)
         if s:
+            if is_possible_decorative_noise_vn(s):
+                stats["possible_decorative_noise_flagged"] += 1
+                if audit is not None:
+                    audit.log(
+                        rule_id="POSSIBLE_DECORATIVE_NOISE",
+                        original_line=line_no,
+                        original_start=0,
+                        original_end=len(s),
+                        before=s,
+                        after=s,
+                        reason="Candidate decorative/OCR noise line preserved and queued for human review",
+                        review_status="POSSIBLE_DECORATIVE_NOISE",
+                    )
             cleaned.append((line_no, s))
 
     # 4. Safe deduplication (P01 & P02 fixed)
@@ -1003,6 +1054,90 @@ def normalize_cjk_punct_and_ws(
     return text
 
 
+def merge_classical_cjk_fragments(
+    lines: list[tuple[int, str]],
+    stats: dict,
+    audit: AuditLogger | None = None,
+) -> list[tuple[int, str]]:
+    """
+    Merge incomplete Classical Chinese fragments caused by OCR/source line breaks
+    (e.g. '方用' + '並提湯' + '。' -> '方用並提湯。'; '歌括：' + blank + next line -> '歌括：...';
+    standalone terminal punctuation '。' attached to preceding line).
+    """
+    out: list[tuple[int, str]] = []
+    n = len(lines)
+    i = 0
+    standalone_punct_re = re.compile(r"^[。，、；：！？）】》]+$")
+    intro_label_re = re.compile(r"^(?:方用|歌括：|又方：|又：)$")
+
+    while i < n:
+        ln, cur = lines[i]
+        s = cur.strip()
+        if not s:
+            out.append((ln, ""))
+            i += 1
+            continue
+
+        # Case 1: Standalone punctuation line (e.g. '。') -> attach to previous non-empty line
+        if standalone_punct_re.fullmatch(s):
+            # Find previous non-empty line in out
+            j = len(out) - 1
+            while j >= 0 and not out[j][1].strip():
+                j -= 1
+            if j >= 0:
+                prev_ln, prev_s = out[j]
+                merged_s = prev_s + s
+                out[j] = (prev_ln, merged_s)
+                # Drop any blank lines between prev and this punct
+                del out[j + 1:]
+                stats["cjk_fragment_merges"] += 1
+                if audit is not None:
+                    audit.log(
+                        "CJK_ORPHAN_PUNCT_MERGE",
+                        ln,
+                        f"{prev_s} [L{prev_ln}+L{ln}] {s}",
+                        merged_s,
+                        f"Merged isolated punctuation '{s}' onto preceding line L{prev_ln}",
+                    )
+                i += 1
+                continue
+
+        # Case 2: Incomplete introducer ('方用', '歌括：', '又方：', '又：') -> merge with next non-empty line
+        if intro_label_re.fullmatch(s):
+            j = i + 1
+            while j < n and not lines[j][1].strip():
+                j += 1
+            if j < n:
+                nxt_ln, nxt_s = lines[j]
+                merged_s = s + nxt_s.strip()
+                k = j + 1
+                # Also attach an immediately following standalone punctuation line (e.g. '方用' + '並提湯' + '。')
+                if k < n and standalone_punct_re.fullmatch(lines[k][1].strip()):
+                    punct_ln, punct_s = lines[k]
+                    merged_s += punct_s.strip()
+                    before_repr = f"{s} [L{ln}] + {nxt_s.strip()} [L{nxt_ln}] + {punct_s.strip()} [L{punct_ln}]"
+                    i = k + 1
+                else:
+                    before_repr = f"{s} [L{ln}] + {nxt_s.strip()} [L{nxt_ln}]"
+                    i = j + 1
+                stats["cjk_fragment_merges"] += 1
+                if audit is not None:
+                    audit.log(
+                        "CJK_FRAGMENT_MERGE",
+                        ln,
+                        before_repr,
+                        merged_s,
+                        f"Merged incomplete Classical Chinese fragment '{s}' with continuation",
+                    )
+                out.append((ln, merged_s))
+                continue
+
+        out.append((ln, s))
+        i += 1
+
+    return out
+
+
 def process_pho_thanh_chu(
     text: str,
     audit: AuditLogger | None = None,
@@ -1060,6 +1195,7 @@ def process_pho_thanh_chu(
             cleaned.append((line_no, s))
 
     cleaned = deduplicate_adjacent_lines(cleaned, stats, audit=audit)  # type: ignore[assignment]
+    cleaned = merge_classical_cjk_fragments(cleaned, stats, audit=audit)
     final_lines = collapse_blank_lines([l for _, l in cleaned])
     out = "\n".join(final_lines) + "\n"
     stats["output_lines"] = len(final_lines)
@@ -1548,6 +1684,113 @@ _VN_ABBREV_RE = re.compile(
     r"(?:^|\s)[A-Za-zÀ-ỹĐđ])\.$"
 )
 
+# Semantic/structural boundary patterns for unpunctuated Classical Chinese / Han-Nom medical texts
+_CLASSICAL_RECIPE_OPENER_RE = re.compile(
+    r"○?(?:"
+    r"一(?:經|经|傳|传|佈|布|法|径|得|神方|方(?!寸)|治|冶|預.{1,3}方|小兒.{1,5}方|反魂丹|先從)"
+    r"|又(?:經|经|傳|传|付)?方"
+    r"|又(?:經|经|傳|传)治"
+    r"|又一?[法方治]"
+    r")"
+)
+
+_CLASSICAL_SECTION_OPENER_RE = re.compile(
+    r"(?<=[效愈止消散妙安瘥良平度服下之也矣焉耳落敵])"
+    r"(?=(?:[\u4e00-\u9fff]{2,6})夫(?:[\u4e00-\u9fff]{1,6})(?:者|乃|之|縂|總|謂|初生|或))"
+)
+
+_CLASSICAL_PARTICLE_BOUNDARY_RE = re.compile(
+    r"(?<=[也矣焉耳乎哉])"
+    r"(?=(?:夫|大?[凡凢]|故|然|蓋|葢|苟|若|或|又|且|但|其|此|是以|治|宜|大底|惟|今|昔|況|况|脫|脱|經|经|來|来|而|則|乃|如))"
+)
+
+_CLASSICAL_CLAUSE_OPENER_RE = re.compile(
+    r"(?=(?:大?[凡凢]|其[一二三四五六七八九十]|蓋|葢|是以|治(?:法|宜|者)|又有|若夫|大底))"
+)
+
+_CLASSICAL_EFFICACY_END_RE = re.compile(
+    r"(?:立效|神效|大效|甚效|並效|見效|取效|即效|必效|奇效|極效|尤效|"
+    r"立愈|即愈|自愈|便愈|乃愈|即消|立消|自消|便消|乃消|"
+    r"即散|立散|自散|便散|乃止|即止|立止|自止|方止|"
+    r"以愈[為爲]度|以消[為爲]度|[為爲]度|送下|調下|灌下|"
+    r"水煎服|[溫温]服|頓服|任服|塗之|敷之|[點点]之|洗之|熨之|食之|[飲饮]之|吞之|浴之|"
+    r"日三服|日二次|日三次|百發百中)"
+)
+
+
+def _find_unpunctuated_classical_cjk_splits(
+    text: str,
+    span_start: int,
+    span_end: int,
+) -> list[tuple[int, str]]:
+    """
+    Find semantic/structural sentence boundaries inside long unpunctuated Classical Chinese /
+    Han-Nom spans (e.g. Tân san Nam dược thần hiệu woodblock texts) without hard-cutting by
+    character count. Preserves exact character offsets into `text`.
+    """
+    chunk = text[span_start:span_end]
+    if len(chunk) < 40:
+        return []
+
+    # Only trigger when terminal CJK punctuation is sparse (< 1 per 120 chars)
+    punct_count = sum(1 for ch in chunk if ch in "。！？；")
+    if punct_count >= max(1, len(chunk) // 120):
+        return []
+
+    # Pass 1: Structural recipe & disease-section openers
+    splits: dict[int, str] = {}
+    for m in _CLASSICAL_RECIPE_OPENER_RE.finditer(chunk):
+        pos = m.start()
+        if pos >= 6:
+            splits[pos] = "CLASSICAL_RECIPE_BOUNDARY"
+
+    for m in _CLASSICAL_SECTION_OPENER_RE.finditer(chunk):
+        pos = m.start()
+        if pos >= 6 and pos not in splits:
+            splits[pos] = "CLASSICAL_SECTION_BOUNDARY"
+
+    def _subspans() -> list[tuple[int, int]]:
+        pts = [0] + sorted(splits.keys()) + [len(chunk)]
+        return [(pts[k], pts[k + 1]) for k in range(len(pts) - 1)]
+
+    # Pass 2: For any subspan still > 180 chars, split at Classical Chinese final particles & discourse openers
+    for s0, s1 in _subspans():
+        if s1 - s0 <= 180:
+            continue
+        sub = chunk[s0:s1]
+        last_rel = 0
+        for m in _CLASSICAL_PARTICLE_BOUNDARY_RE.finditer(sub):
+            rel = m.start()
+            if rel - last_rel >= 18 and (len(sub) - rel) >= 12:
+                splits[s0 + rel] = "CLASSICAL_PARTICLE_BOUNDARY"
+                last_rel = rel
+
+    # Pass 3: For any subspan still > 220 chars, split at discourse openers (凡/蓋/其一/治法...)
+    for s0, s1 in _subspans():
+        if s1 - s0 <= 220:
+            continue
+        sub = chunk[s0:s1]
+        last_rel = 0
+        for m in _CLASSICAL_CLAUSE_OPENER_RE.finditer(sub):
+            rel = m.start()
+            if rel - last_rel >= 25 and (len(sub) - rel) >= 15:
+                splits[s0 + rel] = "CLASSICAL_CLAUSE_BOUNDARY"
+                last_rel = rel
+
+    # Pass 4: For any subspan still > 220 chars, split after recipe efficacy/administration endings
+    for s0, s1 in _subspans():
+        if s1 - s0 <= 220:
+            continue
+        sub = chunk[s0:s1]
+        last_rel = 0
+        for m in _CLASSICAL_EFFICACY_END_RE.finditer(sub):
+            rel = m.end()
+            if rel - last_rel >= 20 and (len(sub) - rel) >= 15:
+                splits[s0 + rel] = "CLASSICAL_EFFICACY_BOUNDARY"
+                last_rel = rel
+
+    return [(span_start + pos, reason) for pos, reason in sorted(splits.items())]
+
 
 def segment_sentences(
     text: str,
@@ -1555,6 +1798,7 @@ def segment_sentences(
 ) -> tuple[list[dict], list[dict]]:
     """
     Segment cleaned text into sentences and record 4+4 Unicode context at every split boundary (P07).
+    Includes semantic/structural boundary detection for unpunctuated Classical Chinese / Han-Nom spans.
     Returns:
       - sentences: list of {"sent_id": int, "start": int, "end": int, "text": str}
       - boundaries: list of {"split_id": int, "offset": int, "prev_4": str, "next_4": str, "reason": str}
@@ -1583,7 +1827,7 @@ def segment_sentences(
                 continue
             if ch in cjk_end:
                 end_pos = i + 1
-                while end_pos < n and text[end_pos] in closers:
+                while end_pos < n and (text[end_pos] in cjk_end or text[end_pos] in closers):
                     end_pos += 1
                 # Only record split if there is more non-whitespace text ahead
                 if end_pos < n and text[end_pos] not in "\r\n":
@@ -1591,6 +1835,20 @@ def segment_sentences(
                 i = end_pos
                 continue
             i += 1
+
+        # Semantic/structural refinement for long unpunctuated Classical Chinese / Han-Nom spans
+        refined_splits: list[tuple[int, str]] = []
+        span_start = 0
+        for offset, reason in split_points:
+            extra = _find_unpunctuated_classical_cjk_splits(text, span_start, offset)
+            refined_splits.extend(extra)
+            refined_splits.append((offset, reason))
+            span_start = offset
+            while span_start < n and text[span_start] in " \t\r\n":
+                span_start += 1
+        if span_start < n:
+            refined_splits.extend(_find_unpunctuated_classical_cjk_splits(text, span_start, n))
+        split_points = refined_splits
     else:
         # Vietnamese sentence segmentation
         closers = set("\"'”’)]")
@@ -1688,11 +1946,58 @@ def segment_sentences(
 # Independent Output Verification (P11)
 # ---------------------------------------------------------------------------
 
+def verify_segmentation(text: str, sentences: list[dict], boundaries: list[dict], lang: str) -> dict:
+    """Verify sentence offset exactness, 4+4 boundary integrity, and segmentation health."""
+    offset_mismatches = 0
+    isolated_punct = 0
+    isolated_intro_fragments = 0
+    lengths: list[int] = []
+    for s in sentences:
+        if text[s["start"]:s["end"]] != s["text"]:
+            offset_mismatches += 1
+        st = s["text"].strip()
+        lengths.append(len(st))
+        if re.fullmatch(r"[。，、；：！？.,;:!?]+", st):
+            isolated_punct += 1
+        if st in ("方用", "歌括：", "又方：", "又："):
+            isolated_intro_fragments += 1
+
+    bad_boundaries = sum(1 for b in boundaries if not b.get("prev_4") or not b.get("next_4"))
+    max_len = max(lengths) if lengths else 0
+    mean_len = round(sum(lengths) / len(lengths), 1) if lengths else 0.0
+    over_300 = sum(1 for l in lengths if l > 300)
+
+    issues: list[str] = []
+    if offset_mismatches > 0:
+        issues.append(f"{offset_mismatches} sentence offset mismatch(es)")
+    if bad_boundaries > 0:
+        issues.append(f"{bad_boundaries} boundary record(s) missing prev_4/next_4")
+    if isolated_punct > 0:
+        issues.append(f"{isolated_punct} isolated punctuation-only sentence(s)")
+    if isolated_intro_fragments > 0:
+        issues.append(f"{isolated_intro_fragments} isolated Classical Chinese intro fragment(s)")
+
+    return {
+        "sentences_count": len(sentences),
+        "boundaries_count": len(boundaries),
+        "offset_mismatches": offset_mismatches,
+        "bad_boundaries": bad_boundaries,
+        "isolated_punct": isolated_punct,
+        "isolated_intro_fragments": isolated_intro_fragments,
+        "mean_sentence_len": mean_len,
+        "max_sentence_len": max_len,
+        "sentences_over_300_chars": over_300,
+        "status": "PASS" if not issues else "WARN",
+        "issues": issues,
+    }
+
+
 def verify_output(raw: str, refined: str, lang: str, filename: str) -> dict:
-    """Run independent verification checks comparing refined output against raw input."""
+    """Run independent structural verification checks comparing refined output against raw input."""
     checks: dict = {
         "file": filename,
         "lang": lang,
+        "verification_scope": "structural",
         "changed": refined != raw,
         "retention_ratio": round(len(refined) / max(1, len(raw)), 4),
         "issues": [],
@@ -1817,11 +2122,15 @@ def run_pipeline(
         ver = verify_output(raw, refined, lang, fname)
         verification[fname] = ver
 
-        # P07: Sentence segmentation + 4+4 context log
+        # P07: Sentence segmentation + 4+4 context log + verification
         if sentences_dir is not None:
             sents, bounds = segment_sentences(refined, lang)
+            seg_ver = verify_segmentation(refined, sents, bounds, lang)
+            ver["segmentation"] = seg_ver
             stats["sentences_count"] = len(sents)
             stats["split_boundaries_count"] = len(bounds)
+            stats["mean_sentence_len"] = seg_ver["mean_sentence_len"]
+            stats["max_sentence_len"] = seg_ver["max_sentence_len"]
             stem = Path(fname).stem
             sent_txt_path = Path(sentences_dir) / f"{stem}_sentences.txt"
             sent_jsonl_path = Path(sentences_dir) / f"{stem}_sentences.jsonl"
