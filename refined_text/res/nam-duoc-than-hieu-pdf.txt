@@ -63,7 +63,7 @@ I LOẠI CỎ HOANG
 37. Hoàng quý tử: Hạt Vông (bông) vang, vị ngọt, khí lạnh, rất hoạt tràng, thông tia sữa, thông dái gắt, tiêu phù thủng, làm dễ để và chừa nhọt lờ.
 38. Quyết minh tử: Hạt Muống muống (Muống ngủ), vị mặn tính bình, không độc, ích thận thanh can, mát 5 tạng, chừa mụn nhọt, mát lòa và đau đầu đặc hiệu.
 39. Địa phuử tử: Hạt Hau hau, vị đáng tính lạnh, lành, hòa hoãn, lợi tiểu tiện, bổ ích tinh thần, tỏ tai sáng mắt, chữa liệt dương, sa tinh hoãn và lở ngứa.
-40. Dình lịch nam: Hạt dạy, vị cày tính lạnh không độc, tiêu tích đờm, xốp phù thủng, ngừng hen suyễn, thông kinh nguyệt. Lót giấy trong nồi sao mà dùng.
+40. Dình lịch nam: (1) Hạt dạy, vị cày tính lạnh không độc, tiêu tích đờm, xốp phù thủng, ngừng hen suyễn, thông kinh nguyệt. Lót giấy trong nồi sao mà dùng.
 41. Xa tiền tử: Hạt mã đề, vị ngọt, khí lạnh, lợi tiểu tiện, ngừng ia tả, thông dái gắt, trừ tế thấp, ích tinh khí, làm dễ để. Xát bỏ vỏ ngoài.
 42. Má tiền thảo: Cỏ Má tiền (cỏ Roi ngựa), vị đáng, tính hơi lạnh, thông kinh bế, tan tích tụ, chừa nhọt lờ vết đứt và lở trỉ.
 43. Đại lam: Cây Chàm, vị đáng, ngọt, tính lạnh, thanh nhiệt, trị xuất huyết, giải độc, sát trùng, chửa bệnh cam trẻ em và sưng lờ.
@@ -761,7 +761,7 @@ CÁC BỆNH TRÚNG
 I TRÚNG PHONG
 Trùng phong là dầu các bệnh, biến hóa lạ thường và phát bệnh khác biệt, triệu chứng như thình lĩnh ngã ngất, hôn mê bất tinh, miệng mất méo lệch, sủi bọt mồm bọt miếng, bản thân bất toại, nói lăng ú ớ, chân tay cứng đờ không co dùi được, các chứng trạng như thế đều là trùng phong cả, khi gặp các chứng nguy nan này thì hãy kíp xem các phương sau đây mà chữa.
 1. Kinh trị trùng phong, bất tinh nhân sự, sủi bọt miếng, cấm khẩu, tay chân không cử động, uống thang thuốc này thời không thành phế tật.
-Trắc bá diệp (bỏ cảnh) 1 năm, Hành tráng cả rẻ 1 năm, Giả nát, nấu với nước một thăng rượu ngon, sôi vai dao thì uống. Không biết uống rượu thì sắc với nước cùng được. (Một bàn khác chép: "Như không uống rượu được 1 lần thì có thể chia làm 4, 5 lần mà uống.)
+Trắc bá diệp (bỏ cảnh) 1 năm, Hành tráng cả rẻ 1 năm, Giả nát, nấu với nước một thăng rượu ngon, sôi vai dao thì uống. Không biết uống rượu thì sắc với nước cùng được. (Một bàn khác chép: "Như không uống rượu được 1 lần thì có thể chia làm 4, 5 lần mà uống (2).)
 2. Kinh trị trùng phong, cấm khẩu, không nói dược, tâm phiền hoàng hớt, tay chân không cử động hoặc dau bụng, đầy hơi, hoặc có lúc ngất đi rồi lại tỉnh.
 -Dất lòng bếp 5 thăng, tán nhỏ, quấy đều với 8 thăng nước, lắng lấy nước trong, cay miệng người đố dần dần vào, tỉnh thì thôi.
 -Đậu đen lớn hạt, nấu bỏ bã lấy nước, cô thành cao mà ngậm, dùng lâu mới công hiệu.
@@ -959,6 +959,7 @@ Vỏ trứng gà (thứ đã nở con rồi) đốt cháy, tán nhỏ, uống v�
 -Tóc rồi, đốt tôn tính, tán nhỏ, mỗi lần lấy 1 đồng tiền xúc, uống với nước đã nấu chín, mỗi ngày uống ba lần sẽ khỏi.
 38. Kinh trị thương hàn phát ban dỏ.
 -Thanh đại 2 đồng, nghiền nhỏ quầy với nước cho uống.
+39. Kinh trị thương hàn phát ban.
 -Nước mật heo 3 vốc, Giấm thanh 3 chén nhỏ, Trừng gà 1 quả. Trộn đều nấu sỏi 3 dao cho uống để ra mồ hôi, người yếu thì chia ra làm 2, 3 lần uống.
 -Thiên khai hoàn. Bài thuốc rất hay của nước Nam ta, chữa phong, hàn, thử, thấp sơn lam chướng khí, trúng độc.
 Trun khoang có 100 con, Cua đồng 100 con, Bọ hung 15 con, Kim tinh, ngân tinh tán nhỏ, lọc qua nước mỗi thứ 1 lạng. Thạch cao nung dỏ, tán nhỏ lọc qua nước 1 lạng, Thường son (ngâm rượu 1 đêm dọc bỏ gần lá) 1 lạng. Dây bò dài 1 lạng, Dây lắng rừng 1 lạng, Rêu đất 5 đồng, Xác ve sâu (bỏ đầu chấn) 5 đồng, Xợ hương 1 đồng.
@@ -1123,6 +1124,7 @@ Cát cán tươi, giả vật lấy nước cốt 1 bát, nếu không có cát 
 Trưng gà 1 quà, xoi 1 lỗ, nhét vào 3 đồng căn đường cát trăng, phơi sương 1 đêm, uống lúc đói.
 5. Truyền trị 4 mùa nóng nực nhiều mà phát cuồng:
 Xác rán (đốt tồn tính) 1 đồng Chuối con 1 cây giả nát, vật lấy nước cốt nửa chén, hòa với xác rán mà uống thì khỏi.
+6. Truyền trị 4 mùa nóng nhiều mà phát cuồng:
 Mật gấu 1 phân, nghiên với nước lạnh uống khỏi ngay.
 7. Kinh trị thời khí nóng dữ, tâm thần phiền táo:
 Bột chàm 1 muỗng, hòa với 1 chén nước mới múc, uống bất kỳ lúc nào, thần hiệu.
@@ -2130,6 +2132,7 @@ Muời khoa chữa bệnh
 QUYỂN III
 CÁC BỆNH XUẤT HUYẾT
 
+CÁC BỆNH XUẤT HUYẾT
 Những bệnh danh: Thổ huyết, nục huyết, lạc huyết, thỏa huyết, tiện huyết, nieu huyết...
 đều là tùy chỗ xuất huyết mà gọi tên, nhưng tổng quát cũng là thất huyết (mất máu) mà thôi.
 Về bệnh thì có bệnh mới bệnh cũ, bệnh hư bệnh thực khác nhau, nhưng cũng đều do hỏa nhiệt bức bách mà gây ra. Bởi vì dương thịnh âm suy, khí bốc lên không nến xuống huyết theo khí tràn lên các khiếu bên trên mà thành bệnh.
@@ -3727,6 +3730,7 @@ Quế tâm tán nhỏ, để chút ít trên lưỡi nuốt nước xuống là 
 Hoa hòe 5 đông cân, để trên miếng ngói mới sấy khô ngày đêm thường nhai chút ít rồi nuốt, rất hay.
 31. Kinh trị chứng dau họng khản tiếng:
 Rượu một chung, Vang sửa một muống, Can khương tán nhỏ 1 thìa. Ba thứ hòa chung ngày uống 2 lần công hiệu.
+32. Kinh trị chứng dau họng khản tiếng:
 Mō lon 1 miếng, rán chày nước vớt bỏ bá, dổ vào một thang mật ong, lại nấu sôi lên, lắng trong chờ người, mối lần dùng một muống nhỏ, bất cứ lúc nào uống cũng được. Nếu người không bệnh, thường uống cũng tốt.
 VIII HỐC XUONG
 Hóc xương là do ăn các thứ xương hay vật cứng, cần nhai không nhỏ đã nuốt, mắc ngang cổ họng, khác không ra, nuốt không xuống thậm chí gần chết, nên chiếu phương sau đây mà chừa.
@@ -4540,6 +4544,7 @@ Người đến được tuổi già có 6 điều cốt yếu:
 -Là thanh tâm tiết dục, chờ nên mong ước được việc này việc nọ. ✓
 -Là mùa đông phải được ấm, mùa hè phải được mát, phải thích với thời tiết chờ để phong hàn thấp thâm nhập.
 -Là cần ăn nhưng ăn nhiều bữa, chờ ăn ít bữa mà ăn quá no, đồ ăn nên nóng, lòng mềm, dẻo, không nên ăn sống lạnh, cứng, rắn.
+-... (lược)
 -... (lược)
 Làm được mấy điều cốt yếu kể trên thì giữ gìn được tính mạng yên ổn được sớm hôm, an nhàn thành thơi, đủ phương điệu dưỡng, thì sống đến tuổi thơ 100 năm cũng không xa.
 1. Cháo chim sẽ chứa người già, tạng phủ hư tổn, gậy yếu ngăn hơi.
@@ -7990,7 +7995,7 @@ Thuốc Nam Việt chứa người Nam Việt.
 Bạc vàng đất nước
 Ngọc đá sắt gang.
 Tuyết diêm yêu thay muổi trắng,
-Vân mầu tốt bấy vây trang
+Vân mầu tốt bấy vây trang (4)
 Cứu khổ danh ốc Quyết minh, chữa mục hôn (mắt mờ) ắt hiệu;
 Thạch cao hiệu rằng Phương giải ngăn đầu thống (nhức) khôn đang
 Cút dơi hiệu Dạ mình sa vốn chư phán Biển bức;
@@ -10495,17 +10500,17 @@ Cảm hàn nặng, uống 1 thang chưa ra mồi, thì cho uống 1 thang nữa,
 Nhật xét: Dùng các vị bằng nhau thì lượng Tế tân và Cam thảo nhiều quá, cẩn sét lại?
 IV
 Thứ tư thang lục thần thông giải
-Chủ vãng phát tiết phải tháng ba.
+Chủ vãng phát (55) tiết phải tháng ba.
 Nhức đầu, sốt rét đầy là.
-Mạch lại hồng sác, Xung hoà phục sơ
-Chửa xưng thông giải lại gia.
+Mạch lại hồng sác, Xung hoà phục sơ (57)
+Chửa xưng (58) thông giải lại gia.
 Cẩm, Kỳ, Cam thảo, cùng là Xuyên khung.
 Thạch cao, Hoạt thạch lại dùng.
-Khương hoạt, Thương truật, miễn cùng Tế tân.
-Truỷ pháp Thông. Sị bộ phận hiệu thay.
-Nhiệt phục thủ hà đăng tay.
-Trúng bệnh tức chỉ, hiệu thay lạ thường!
-4. Lục thần thông giải thang
+Khương hoạt, Thương truật, miễn (59) cùng Tế tân.
+Truỷ pháp Thông. Sị (61) bộ phận hiệu thay.
+Nhiệt phục thủ hà (62) đăng tay.
+Trúng bệnh tức chỉ (63), hiệu thay lạ thường!
+4. Lục thần thông giải thang (64)
 Chửa bệnh thời khí phát về tháng ba, gọi là vãng phát, nhức đầu, nóng mình ghét rét, mạch hồng sác, trước đã dùng xung hoà thang không khói thì sau cho uống thang này.
 Ma hoàng Hoàng kỳ Tế tân
 Xuyên khung Khương hoạt Thương truật
@@ -10518,24 +10523,24 @@ Thứ năm thang Giải cơ sài cát.
 Túc Dương Minh vị nhiệt truyền kinh.
 Đầu đau, quầng mất nhực quanh.
 Mùi khô, không dử (ghen) nhiều hành buồn song (?)
-Dù thấy mạch đến vi hồng,
+Dù thấy mạch đến vi hồng, (65)
 
 Theo mùa gia giảm, hợp dung khá cho.
 Cát căn, Cam thảo, Sài hồ,
 Khương hoạt, Bạch chỉ dùng no đủ liều.
 Hoàng cầm, Cát cảnh cũng nhiều.
 Trước sau bảy vị, lượng đều bằng nhau.
-Tào, Khương thanh thủy sắc ngao,
+Tào, Khương thanh thủy sắc ngao, (66)
 Chùa pháp gia Nguyễn Thạch Cao một đồng.
-Bản kinh phải thuở mùa đông.
+Bản kinh (67) phải thuở mùa đông.
 Mổ hôi không có, rét rùng khôn đang.
 Bỏ hoang cầm gia Ma hoang.
-Xuân lại khác đường, thiếu thiếu gia chi
-Hè, thu tịnh khử bất nghi
+Xuân lại khác đường, thiếu thiếu gia chi (68)
+Hè, thu tịnh khử bất nghi (69)
 Ta lại cùng thì gia lá Tia tô,
 Mổ hôi khát nước chẳng lo,
-Như thần Bạch Hồ, mặc dù khá hay!
-5. Sài cát giải cơ thang
+Như thần Bạch Hồ (70), mặc dù khá hay!
+5. Sài cát giải cơ thang (71)
 Tức Các căn thang gia giảm, chữa bệnh chứng Túc Dương minh vi, đấu đau, quãng mắt, nhức, mũi khô, không dữ, mạch hơi hồng.
 Công thức
 Sài hồ, Cát căn

@@ -1,133 +1,59 @@
 # Text Refinement Documentation (`./text` -> `./refined_text`)
 
-This document records all preprocessing rules, automated transformations, quantitative metrics, and concrete before/after examples applied to the 10 text files in `./text` to produce the cleaned corpus in `./refined_text`.
+This document records the updated preprocessing pipeline, quantitative metrics, audit/review artifacts, sentence segmentation logs, and fixes applied for all issues **P01–P11** reported in [`BAO_CAO_LOI_TIEN_XU_LY.md`](../BAO_CAO_LOI_TIEN_XU_LY.md).
 
-- **Pipeline Script**: [`clean_texts.py`](./clean_texts.py)
-- **Quantitative Stats (JSON)**: [`refinement_stats.json`](./refinement_stats.json)
-- **Input Folder**: `./text` (10 `.txt` files, UTF-8)
-- **Output Folder**: `./refined_text` (10 `.txt` files, UTF-8, `\n` line endings)
-
----
-
-## 1. Summary of Quantitative Changes
-
-| File | Dominant Script | Input Lines | Output Lines | Input Chars | Output Chars | Front/Back Matter & Non-Main Removed | Headers / Footers / Page Nums Removed | Footnotes Removed (Lines + Inline) | Tables / Plates Removed | Dup Lines Removed | Page-Break Merges | Cross-Script Removed | Garbage Tokens Cleaned | Punct/WS Lines Normalized |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `nam-duoc-than-hieu-pdf.txt` | Vietnamese | 12,141 | 11,338 | 1,051,267 | 1,002,115 | 498 lines | 78 | 125 lines + 199 inline | 25 lines | 5 | 36 | 0 *(18 CJK on removed cover)* | 4,495 | 303 |
-| `nam_khoa_nu_khoa.txt` | Vietnamese | 3,356 | 2,671 | 258,055 | 216,036 | 488 lines | 83 | 399 inline (+347 endnote lines in back matter) | 0 | 1 | 0 | 1,398 Han-Nom spans | 95 | 333 |
-| `Pho_Thanh_Chu_Nu_Khoa.txt` | Classical Chinese | 3,675 | 3,640 | 54,204 | 53,295 | 0 | 0 | 21 lines + 10 inline | 0 | 2 | 0 | 0 | 72 | 61 |
-| `Linh khởi điểm học trung y..._resolved.txt` | Simplified Chinese | 393 | 87 | 139,465 | 131,831 | 17 pages | 2 | 0 | 0 | 0 | 90 | 0 | 74 | 7 |
-| `phuong-te-hoc..._resolved.txt` | Simplified Chinese | 531 | 111 | 301,500 | 265,202 | 38 pages | 0 | 99 inline | 5 blocks (+10 appendix table pages) | 0 | 116 | 0 | 15 | 35 |
-| `Tân_san_Nam_dược..._q5_resolved.txt` | Han-Nom / Classical Chinese | 101 | 10 | 7,855 | 7,769 | 0 | 1 | 0 | 0 | 0 | 41 | 0 | 4 | 0 |
-| `Tân_san_Nam_dược..._q6_resolved.txt` | Han-Nom / Classical Chinese | 299 | 41 | 22,950 | 22,712 | 0 | 0 | 0 | 0 | 0 | 109 | 0 | 21 | 0 |
-| `Tân_san_Nam_dược..._q8_resolved.txt` | Han-Nom / Classical Chinese | 223 | 21 | 19,852 | 19,654 | 1 page | 2 | 0 | 0 | 0 | 90 | 0 | 11 | 0 |
-| `Tân_san_Nam_dược..._q9_resolved.txt` | Han-Nom / Classical Chinese | 259 | 23 | 21,309 | 20,978 | 2 pages | 1 | 0 | 0 | 0 | 105 | 0 | 13 | 0 |
-| `Tân_san_Nam_dược..._q10_resolved.txt` | Han-Nom / Classical Chinese | 261 | 26 | 22,847 | 22,586 | 1 page | 19 | 0 | 0 | 0 | 104 | 0 | 11 | 0 |
+- **Pipeline Script**: [`clean_texts.py`](../code/clean_texts.py) (importable module + CLI)
+- **Regression Test Suite**: [`test_clean_texts.py`](../code/test_clean_texts.py) (9/9 PASS)
+- **Quantitative Stats & Verification**: [`refinement_stats.json`](./refinement_stats.json)
+- **Per-Change Audit Log**: [`audit_changes.jsonl`](./audit_changes.jsonl) (7,325 records)
+- **Human Review Queue**: [`review_queue.jsonl`](./review_queue.jsonl) (98 flagged items)
+- **Sentence Segmentation 4+4 Boundary Log**: [`segmentation_changes.txt`](./segmentation_changes.txt)
+- **Segmented Sentences Output**: [`../sentences/`](../sentences/) (`.txt` + `.jsonl` with offsets for all 10 files)
 
 ---
 
-## 2. Requirements Coverage & Detailed Rules Applied
+## 1. Summary of Fixes for `BAO_CAO_LOI_TIEN_XU_LY.md` (P01–P11)
 
-### 2.1 Remove headers, footers, and non-main-content pages
-- **`nam-duoc-than-hieu-pdf.txt`**:
-  - Removed front matter (L1–L75): cover pages, publisher imprint, watermark URLs (`https://vnras.com/drug/`), temple photograph caption (`Miếu Nghe, thơ Tuệ Tình ở chùa Giam xã Cẩm Sơn`), `LỜI NÓI ĐẦU`, `TIỂU SỬ CỦA TUỆ TĨNH`, `LỜI TỰA`, and `PHÀM LỆ`. Main content begins cleanly at `NAM DƯỢC THẦN HIỆU` / `QUYỂN ĐẦU`.
-  - Removed internal table of contents `THƯƠNG HÀN CÁCH PHÁP TRỊ LỆ MỤC LỤC` (41 lines).
-  - Removed back matter (L11760–L12141): `MỤC LỤC`, print colophon, and back cover price/address.
-  - Removed 78 standalone page numbers (e.g., `15`, `31`, `47`, `61`, ...) and watermark URLs (`https://vnras.com/drug/`).
-- **`nam_khoa_nu_khoa.txt`**:
-  - Removed translator credit header line 1 (`DỊCH GIÁ: ĐỊNH NINH - LỄ ĐỨC THIẾP`).
-  - Removed trailing `HÉT`, the entire `PHỤ CHÚ về NỮ KHOA của DỊCH GIẢ` endnotes section, `MỤC LỤC NỮ KHOA`, and publisher/permit/price colophon (487 lines).
-  - Removed 83 decorative section dividers (`oOo`, `O Oo`, `o0o`).
-- **`Linh khởi điểm học trung y_ đái nhĩ thể nghiệm trung y đích 12 đường khóa_resolved.txt`**:
-  - Removed 12 front-matter pages: cover, back-cover blurb, title page, CIP/ISBN copyright page, prefaces (`序`, `前言`), and `目录` (TOC). Main content starts at `体验——中医入门之道`.
-  - Removed 5 back-matter pages: `附录C网友学习感言` (reader testimonials) and `后记` (postscript).
-  - Removed forum watermarks (`更多精彩欢迎访问：中医中药论坛：http：//bbs.zhong-yao.net`) and running header (`——带你体验中医的12堂课`).
-- **`phuong-te-hoc-cung-trung-y-trung-duoc-cham-cuu-chuyen-nghiep-dung-hua_resolved.txt`**:
-  - Removed 8 front-matter pages: cover, `前言`, `编写说明`, and `目录` (TOC). Kept `绪言` and `上篇总论` through end of main text (`小结 痈疡剂`).
-  - Removed 30 back-matter pages: `附录1.常用中成药简表` (multi-page tables), `附录2` (mnemonic songs with running headers `附录`/`附錄`/`附致`), and stroke-order index (`四画`...`二十三画`).
-- **`Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q5, q6, q8, q9, q10`**:
-  - Removed cover-only title pages (`卷捌`, `卷玖`, `卷拾`) and the q9 disease-list TOC page (`卷九小兒科息驚慢驚...`).
-  - Removed 23 woodblock centerfold folio page numbers printed at the start of pages (e.g., `九`, `十一`, `十二`, `六四`, `六五`, `四13`) while preserving all recipe openers (`一經治`, `一方`, `三開`, `五疸`).
-
-### 2.2 Merge words/sentences broken across page breaks
-- **Page-per-line Chinese OCR files** (`Linh khởi điểm...`, `phuong-te-hoc...`, `Tân_san_Nam_dược... q5–q10`):
-  - Rejoined sentences cut mid-word or mid-clause across page boundaries (655 merges total across these 7 files).
-  - For modern Chinese texts, pages not ending in terminal punctuation (`。！？；：”’）】》.!?;:`) are merged seamlessly into the next page without inserting stray spaces.
-  - For unpunctuated classical woodblock texts (`Tân_san_Nam_dược...`), pages are merged continuously except where a new recipe opener (`一經治`, `一傳治`, `又方`, `又經方`) follows a natural recipe ending (`效`, `愈`, `止`, `消`, `散`, `妙`, `安`, `瘥`, `良`, `。`).
-- **Vietnamese OCR files** (`nam-duoc-than-hieu-pdf.txt`, `nam_khoa_nu_khoa.txt`):
-  - Merged prose lines broken mid-sentence across page/line wraps (36 merges in `nam-duoc-than-hieu-pdf.txt`) when a prose line lacks terminal punctuation and the next line begins with a lowercase letter, while preserving headings, poetry lines, and herb ingredient lists.
-
-### 2.3 Remove duplicate lines from OCR overlapping regions
-- Applied exact and high-similarity (`>= 0.92` SequenceMatcher ratio for lines `>= 25` chars) adjacent-line deduplication within a sliding window.
-- Removed 8 duplicate OCR lines (`nam-duoc-than-hieu-pdf.txt`: 5, `Pho_Thanh_Chu_Nu_Khoa.txt`: 2, `nam_khoa_nu_khoa.txt`: 1).
-
-### 2.4 Remove footnotes outside main content and inline footnote markers
-- **`nam-duoc-than-hieu-pdf.txt`**:
-  - Removed 125 bottom-of-page footnote lines (both `(1) ...` style and editorial `1. Nguyên bản ...` / botanical synonym footnotes, carefully distinguishing them from numbered herb/prescription entries).
-  - Removed 199 inline footnote indices (`(1)`–`(99)`, `[1]`, `$ ^{3} $`, `$ ^{(1)} $`, `$ ^{6} $`, etc.).
-- **`nam_khoa_nu_khoa.txt`**:
-  - Removed the entire translator endnotes section (`PHỤ CHÚ về NỮ KHOA của DỊCH GIẢ`, L2872–L3218).
-  - Removed 399 inline footnote markers (`(1)`–`(80)`, `$ ^{2} $`, and `(Xem phụ chú Nam Khoa)`).
-- **`Pho_Thanh_Chu_Nu_Khoa.txt`**:
-  - Removed 21 marginal commentary (`眉批︰`) lines outside the main text and 10 trailing editorial section indices (`（29）`–`（38）`).
-- **`phuong-te-hoc...`**:
-  - Removed 99 inline LaTeX superscript citation markers (`$^{1}$`, `$^{2}$`, `$^{3}$`) after quotations/sentences.
-  - Converted structural list superscripts in `臣药/佐药/使药` definitions (`有两种意义。$^{1}$...$^{2}$...`) into `①`, `②`, `③` so no meaning is lost.
-
-### 2.5 Remove cross-script text (Han-Nom in Vietnamese-dominant files and vice versa)
-- **Vietnamese-dominant files** (`nam-duoc-than-hieu-pdf.txt`, `nam_khoa_nu_khoa.txt`):
-  - Stripped all Han-Nom / CJK ideographs and CJK-specific symbols (`\u2e80-\u2fdf`, `\u3005-\u3007`, `\u3400-\u4dbf`, `\u4e00-\u9fff`, `\uf900-\ufaff`, `\U00020000-\U0003134f`), along with any empty parentheses/brackets or punctuation-only lines left behind.
-  - In `nam_khoa_nu_khoa.txt`, removed **1,398 Han-Nom spans** (including standalone Han section headers such as `調經`, `經水先期` and inline Han herb/formula names such as `THANH KINH THANG 清經湯` -> `THANH KINH THANG`, `青萬 THANH CAO 2 đồng cản` -> `THANH CAO 2 đồng cản`).
-  - In `nam-duoc-than-hieu-pdf.txt`, all 18 Han characters on the front cover were removed with front matter, and the pass guarantees 0 remaining Han-Nom characters in the body.
-- **Chinese / Han-Nom-dominant files** (all 8 remaining files):
-  - Applied `strip_vietnamese_in_cjk` to remove any Vietnamese words (tokens containing Vietnamese diacritics or `đ`/`Đ`) while strictly preserving measurement/scientific units (`g`, `kg`, `ml`, `°C`, `II`, etc.). All 8 files verified to contain **0** Vietnamese diacritic characters.
-
-### 2.6 Fix garbage characters and abnormal whitespace
-- Normalized all files to Unicode **NFC** (fixing decomposed combining diacritics such as `́`, `̀`, `̣`, `̉`, `̃` in Vietnamese OCR).
-- Cleaned LaTeX/Markdown OCR artifacts:
-  - `$\underset{\cdot}{及}$` -> `及`, `$\underset{\cdot}{影}\underset{\cdot}{响}$` -> `影响`
-  - `$37^{\circ}C$` -> `37°C`, `$40°C` -> `40°C`, `\sim` -> `~`
-  - `$ \textit{hòe} $` -> `hòe`, `$ \textbf{...} $` -> `...`, `$ \text{...} $` -> `...`
-  - Stripped stray `*`, `\`, `{`, `}`, `^`, `$`, `\n` literals, OCR table pipes (`|富歸|ĐƯƠNG QUY|2 dòng` -> `ĐƯƠNG QUY 2 dòng`), decorative `◎`, and `思考§` / `恩考§` -> `思考：`.
-- Removed 60 stray Bopomofo/Kana OCR garbage characters (`ㄐ`, `ㄔ`, `ㄇ`, `ㄟ`, `ㄢ`, `ㄘ`, `ㄗ`, `ㄡ`, `ㄏ`, `り`) in `Tân_san_Nam_dược...` woodblock scans.
-- Collapsed multiple spaces/tabs, trimmed trailing spaces, removed erroneous spaces between CJK characters, and collapsed excessive blank lines.
-
-### 2.7 Normalize punctuation without changing meaning
-- **Vietnamese**: converted `« »`, `《 》`, `“ ”` -> `" "`; normalized fullwidth CJK punctuation (`，`, `：`, `；`, `（`, `）`, `？`, `！`, `︰`) inside Vietnamese prose to ASCII equivalents; normalized `.....` -> `...`; fixed spaces before/after punctuation while preserving decimal/thousands numbers (`1.000`, `1,5`, `0.5g`).
-- **Chinese**: normalized `︰` -> `：`, `﹗` -> `！`, `‧` -> `·`, `.....` -> `……`.
-
-### 2.8 Preserve proper nouns, era names, numbers, and measurement units
-- Preserved all proper names (Tuệ Tĩnh, Nguyễn Bá Tĩnh, Phó Thanh Chủ, Lê Trần Đức, 许济群, 天下无疾, 賴玉瓚, etc.), era names/dates (`壬辰年`, `Cảnh Hưng`, `1061`, etc.), numbers (`37°C`, `1~2次`, `1.5g`, `49 hạt`, etc.), and traditional/modern measurement units (`thăng`, `đồng cân`, `lạng`, `phân`, `chỉ`, `g`, `kg`, `ml`, `兩`, `錢`, `分`, `升`, `合`, `枚`, `丸`).
-
-### 2.9 Skip tables and images/figures
-- **`nam-duoc-than-hieu-pdf.txt`**: skipped herb illustration plate pages (`Bảng II`, `Bảng IV`, `Bảng VI`, `Bảng VII` and their picture captions; 25 lines) and temple photo caption.
-- **`phuong-te-hoc...`**: skipped embedded comparison tables (`表1四逆汤和通脉四逆汤鉴别表`, `表2小承气汤与厚朴三物汤鉴别表`, `表3抵当汤和抵当丸鉴别表`, `表4麻黄杏仁甘草石膏汤与麻黄汤鉴别表`, `表5历代衡量与辩的对照表`) and the 10-page table appendix (`附录1.常用中成药简表`).
-
----
-
-## 3. Concrete Before / After Examples
-
-| Category | File | Before | After |
+| ID | Issue | Fix Implemented | Real-Corpus Impact |
 |---|---|---|---|
-| LaTeX & inline footnote | `nam-duoc-than-hieu-pdf.txt` | `-Hoa Kinh giới 2 đồng cân (đồng = đ/c$ ^{(2)} $).` | `-Hoa Kinh giới 2 đồng cân (đồng = đ/c).` |
-| LaTeX italics | `nam-duoc-than-hieu-pdf.txt` | `Vỏ cây $ \textit{hòe} $ bỏ vỏ thở bên ngoài` | `Vỏ cây hòe bỏ vỏ thở bên ngoài` |
-| Han-Nom + footnote + guillemets | `nam_khoa_nu_khoa.txt` | `thế là bởi «thủy hỏa hữu dư» chứ không phải «bất túc»... «ký tế» (2).` | `thế là bởi "thủy hỏa hữu dư" chứ không phải "bất túc"... "ký tế".` |
-| Han-Nom + OCR pipe | `nam_khoa_nu_khoa.txt` | `\|富歸\|ĐƯƠNG QUY\|2 dòng` | `ĐƯƠNG QUY 2 dòng` |
-| Marginalia & variant punct | `Pho_Thanh_Chu_Nu_Khoa.txt` | `身瘦不孕（29）` / `誰知是血虛之故乎﹗` / `眉批︰...` | `身瘦不孕` / `誰知是血虛之故乎！` *(marginalia removed)* |
-| LaTeX temp & bullet | `Linh khởi điểm...` | `体温是$37^{\circ}C$...思考§中医认识人体` | `体温是37°C...思考：中医认识人体` |
-| Emphasis dots & citation sup | `phuong-te-hoc...` | `$\underset{\cdot}{影}\underset{\cdot}{响}$` / `故曰备急”。$^{1}$` | `影响` / `故曰备急”。` |
-| Woodblock folio & Bopomofo | `Tân_san_Nam_dược..._q10` | `六四末酒調服...每服一ㄐ` | `末酒調服...每服一` *(merged across page break)* |
+| **P01** | Auto-deleting dosage lines when two herbs share the same dosage (`3 đồng cản.`, `乳香（一兩，不去油）`, `白朮（二兩，土炒）`) | `deduplicate_adjacent_lines()` now checks only immediately consecutive lines (never across intervening lines) and protects short/dosage/item lines (flagged as `POSSIBLE_DUPLICATE` instead of deleted). | Restored deleted dosage/herb lines in `nam_khoa_nu_khoa.txt` (+1 line) and `Pho_Thanh_Chu_Nu_Khoa.txt` (+4 lines). |
+| **P02** | Auto-deleting near-duplicate sentences differing in numbers (`SequenceMatcher >= 0.92`) | Disabled auto-deletion for all near-duplicates; now flags them as `POSSIBLE_DUPLICATE` with numeric-token comparison while keeping both lines. | Restored 3 wrongly deleted prescriptions (`#39`, `#6`, `#32`) in `nam-duoc-than-hieu-pdf.txt`. |
+| **P03** | Silently deleting unreadable Bopomofo/Kana OCR chars (`每服一ㄐ`, `每服二ㄔ`) at measurement-unit positions | Replaced with `[MASK]` via `replace_unreadable_ocr_with_mask()` and logged every occurrence with original Unicode code point & context as `NEEDS_REVIEW`. | 60 unreadable chars across `Tân_san_Nam_dược... q5, q6, q8, q9, q10` preserved as `[MASK]` + queued for review. |
+| **P04** | Deleting `(n)` inline markers without verifying dosage/unit/reference context | Protected `(n)` before measurement/time/count units (`đồng cân`, `đồng cản`, `lạng`, `lần`, etc.), after digits/reference words (`số`, `trang`, `2 (3)`), or when unverified against document footnotes; flagged as `POSSIBLE_FOOTNOTE`. | 37 uncertain `(n)` cases across `nam-duoc-than-hieu-pdf.txt` (18) and `nam_khoa_nu_khoa.txt` (19) preserved & queued for review. |
+| **P05** | `merge_cjk_pages()` merging consecutive CJK chapter/section headings | Added `is_cjk_heading()` guard to prevent merging when the next page starts with a chapter/section heading or the previous block is a short heading. | Verified by unit test (`第一章论述法` / `第二章论述法`) and applied across all CJK files. |
+| **P06** | Missing per-change audit log with coordinates & before/after | Added `AuditLogger` emitting `audit_changes.jsonl` and `review_queue.jsonl` with `change_id`, `file`, `rule_id`, `original_line`, `original_start`, `original_end`, `before`, `after`, `reason`, `review_status`. | 7,325 granular audit records + 98 review-queue items generated. |
+| **P07** | Missing sentence segmentation and 4+4 Unicode context boundary log | Implemented `segment_sentences(text, lang)` (protecting decimals, abbreviations, list indices) exporting `.txt`, `.jsonl` (with `sent_id`, `start`, `end`), and `segmentation_changes.txt` (with `prev_4` & `next_4`). | All 10 files segmented with full offset & 4+4 boundary logs. |
+| **P08** | Hard-cut regexes (`表2..表5` in `phuong-te-hoc`) eating main prose after tables | Replaced greedy `.*$` table regexes with exact table-ending anchors (`分三服`, `24小时后当下血，不下再服`, `（以清泄肺热为主）`, `1.0355市升`) and audited all front/back/footnote cuts. | Restored +467 chars of lost main prose between/after `表2`, `表3`, and `表5` in `phuong-te-hoc`. |
+| **P09** | Cross-script filtering untraceable | Kept user-requested cross-script filtering (Han-Nom out of VN-dominant files; VN diacritic words out of CJK-dominant files) and logged every removed span in `audit_changes.jsonl`. | 0 residual cross-script tokens across all 10 files, 100% auditable. |
+| **P10** | Heuristic line/page merging risking headings/recipes | Protected headings, numbered items, and herb/dosage lines in both VN and CJK mergers; logged every merge with source line numbers & boundary preview. | All merges traceable in `audit_changes.jsonl`. |
+| **P11** | Always writing unchanged files; hardcoded paths; no independent verification | Refactored into importable module with `run_pipeline()` + CLI args, `only_write_modified=True` default, and `verify_output()` independent verification against raw input. | 10/10 files verified `PASS`; unchanged-file skip verified by unit test. |
 
 ---
 
-## 4. Verification Audit
+## 2. Quantitative Results (All 10 Files)
 
-Post-processing automated verification across all 10 files in `./refined_text` confirmed:
-- Han-Nom characters in Vietnamese-dominant files (`nam-duoc-than-hieu-pdf.txt`, `nam_khoa_nu_khoa.txt`): **0**
-- Vietnamese diacritic characters in Chinese/Han-Nom-dominant files (all 8 files): **0**
-- Remaining LaTeX/garbage symbols (`$`, `\`, `{`, `}`, `^`): **0**
-- Remaining watermark URLs (`vnras.com`, `bbs.zhong-yao.net`): **0**
-- Remaining standalone page numbers: **0**
-- Remaining inline footnote markers (`(n)`, `[n]`): **0**
-- Remaining Bopomofo/Kana OCR garbage: **0**
-- Remaining multiple consecutive spaces or tabs: **0**
+| File | Dominant Script | Input Lines | Output Lines | Input Chars | Output Chars | Audit Records | Review Items | Verification |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| `nam-duoc-than-hieu-pdf.txt` | Vietnamese | 12,141 | 11,343 | 1,051,267 | 1,002,354 | 4,046 | 19 | **PASS** |
+| `nam_khoa_nu_khoa.txt` | Vietnamese | 3,356 | 2,672 | 258,055 | 216,143 | 2,205 | 19 | **PASS** |
+| `Pho_Thanh_Chu_Nu_Khoa.txt` | Classical Chinese | 3,675 | 3,644 | 54,204 | 53,318 | 164 | 0 | **PASS** |
+| `Linh khởi điểm học trung y..._resolved.txt` | Simplified Chinese | 393 | 88 | 139,465 | 131,833 | 103 | 0 | **PASS** |
+| `phuong-te-hoc..._resolved.txt` | Simplified Chinese | 531 | 112 | 301,500 | 265,669 | 271 | 0 | **PASS** |
+| `Tân_san_Nam_dược..._q5_resolved.txt` | Han-Nom / Classical Chinese | 101 | 10 | 7,855 | 7,793 | 46 | 4 | **PASS** |
+| `Tân_san_Nam_dược..._q6_resolved.txt` | Han-Nom / Classical Chinese | 299 | 41 | 22,950 | 22,838 | 130 | 21 | **PASS** |
+| `Tân_san_Nam_dược..._q8_resolved.txt` | Han-Nom / Classical Chinese | 223 | 21 | 19,852 | 19,720 | 104 | 11 | **PASS** |
+| `Tân_san_Nam_dược..._q9_resolved.txt` | Han-Nom / Classical Chinese | 259 | 23 | 21,309 | 21,056 | 121 | 13 | **PASS** |
+| `Tân_san_Nam_dược..._q10_resolved.txt` | Han-Nom / Classical Chinese | 261 | 26 | 22,847 | 22,652 | 135 | 11 | **PASS** |
+| **Total** | — | **21,239** | **17,980** | **1,899,307** | **1,763,376** | **7,325** | **98** | **10/10 PASS** |
+
+---
+
+## 3. Verification & Regression Testing
+
+- **Unit & Regression Tests** (`python -m unittest discover -s refined_text/code -p "test_*.py" -v`): **9/9 PASS** covering P01, P02, P03, P04, P05, P06, P07, P08, and P11.
+- **Independent Post-Run Verification (`verify_output`)**:
+  - Han-Nom characters remaining in Vietnamese-dominant files: **0**
+  - Vietnamese diacritic words remaining in CJK-dominant files: **0**
+  - Unmasked Bopomofo/Kana OCR garbage remaining: **0** (all **60** preserved as `[MASK]` and queued in `review_queue.jsonl`)
+  - Remaining LaTeX/garbage symbols (`$`, `\`, `{`, `}`, `^`): **0**
+  - Remaining watermark URLs (`vnras.com`, `bbs.zhong-yao.net`): **0**

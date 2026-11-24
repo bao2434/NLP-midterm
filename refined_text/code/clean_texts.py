@@ -1,36 +1,110 @@
 #!/usr/bin/env python3
 """
-Text Refinement Pipeline for ./text -> ./refined_text
+Text Refinement & Sentence Segmentation Pipeline for Han-Nom / Vietnamese TCM Corpus.
 
-Implements all required NLP preprocessing & text-cleaning steps while preserving
-the integrity of the main content, proper nouns, era names, numbers, and units:
-  1. Remove headers, footers, page numbers, watermarks, and non-main-content pages
-     (covers, CIP/copyright, prefaces/colophons, tables of contents, indices).
-  2. Merge words/sentences broken across page breaks and line wraps.
-  3. Remove duplicate lines caused by OCR overlapping regions.
-  4. Remove footnotes/marginalia outside main content and inline footnote markers
-     such as [1], (1), $^{1}$, $^{(1)}$, etc.
-  5. Fix garbage characters (LaTeX/Markdown OCR artifacts, stray symbols, Unicode
-     decomposed accents) and abnormal whitespace.
+Fixes all issues P01-P11 identified in BAO_CAO_LOI_TIEN_XU_LY.md while fulfilling all
+preprocessing requirements:
+  1. Remove headers, footers, page numbers, watermarks, and non-main-content pages.
+  2. Merge words/sentences broken across page breaks while protecting headings & recipes.
+  3. Safe adjacent-line deduplication (never auto-deletes dosage lines, short lines, or
+     near-duplicates differing in numbers/units; flags candidates to review queue).
+  4. Remove footnotes outside main content & unambiguous inline footnote markers while
+     protecting numbers/units in prescriptions (flagging uncertain cases).
+  5. Fix garbage characters & abnormal whitespace; replace unreadable woodblock OCR
+     Bopomofo/Kana characters at meaningful positions with [MASK] + NEEDS_REVIEW log.
   6. Normalize punctuation without changing meaning.
-  7. Preserve proper nouns, era names (niên hiệu), numbers, and measurement units.
-  8. Skip tables and image/figure plates.
+  7. Preserve proper nouns, era names, numbers, and measurement units.
+  8. Skip tables and image/figure plates with exact boundaries (no prose loss).
+  9. Filter Han-Nom text in Vietnamese-dominant files and Vietnamese text in CJK-dominant
+     files, with full per-change audit logging.
+ 10. Sentence segmentation with 4+4 Unicode context boundary logs and offsets.
+ 11. Importable module with configurable paths, only-write-modified behavior, and
+     independent output verification.
 """
 
+from __future__ import annotations
+
+import argparse
 import difflib
 import json
 import os
 import re
 import unicodedata
 from collections import defaultdict
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Iterable
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INPUT_DIR = os.path.join(BASE_DIR, "text")
-OUTPUT_DIR = os.path.join(BASE_DIR, "refined_text")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INPUT_DIR = PROJECT_ROOT / "text"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "refined_text" / "res"
+DEFAULT_REPORT_DIR = PROJECT_ROOT / "refined_text" / "report"
+DEFAULT_SENTENCES_DIR = PROJECT_ROOT / "refined_text" / "sentences"
 
 
 # ---------------------------------------------------------------------------
-# Common utility helpers
+# Audit Logging (P06, P09, P10)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AuditRecord:
+    change_id: int
+    file: str
+    rule_id: str
+    original_line: int
+    original_start: int
+    original_end: int
+    before: str
+    after: str
+    reason: str
+    review_status: str = "AUTO_APPLIED"  # AUTO_APPLIED | NEEDS_REVIEW | POSSIBLE_DUPLICATE | POSSIBLE_FOOTNOTE | AMBIGUOUS_MERGE
+
+
+class AuditLogger:
+    """Collects per-change audit records for full traceability and human review."""
+
+    def __init__(self, filename: str = ""):
+        self.filename = filename
+        self.records: list[AuditRecord] = []
+        self._next_id = 1
+
+    def log(
+        self,
+        rule_id: str,
+        original_line: int,
+        before: str,
+        after: str,
+        reason: str,
+        original_start: int = 0,
+        original_end: int = 0,
+        review_status: str = "AUTO_APPLIED",
+        filename: str | None = None,
+    ) -> AuditRecord:
+        rec = AuditRecord(
+            change_id=self._next_id,
+            file=filename or self.filename,
+            rule_id=rule_id,
+            original_line=original_line,
+            original_start=original_start,
+            original_end=original_end,
+            before=before,
+            after=after,
+            reason=reason,
+            review_status=review_status,
+        )
+        self._next_id += 1
+        self.records.append(rec)
+        return rec
+
+    def review_items(self) -> list[AuditRecord]:
+        return [r for r in self.records if r.review_status != "AUTO_APPLIED"]
+
+    def to_dicts(self) -> list[dict]:
+        return [asdict(r) for r in self.records]
+
+
+# ---------------------------------------------------------------------------
+# Common regexes & utility helpers
 # ---------------------------------------------------------------------------
 
 # Unicode ranges for Han-Nom / CJK ideographs & CJK-specific symbols
@@ -46,41 +120,145 @@ VN_DIAC_WORD_RE = re.compile(
     r"ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]*\b"
 )
 
+# Bopomofo / Kana OCR misreads in woodblock texts
+BOPOMOFO_KANA_RE = re.compile(r"[\u3100-\u312f\u3040-\u30ff]")
 
-def strip_han_nom_in_vn(text: str, stats: dict) -> str:
-    """Remove Han-Nom / CJK characters from Vietnamese-dominant text."""
-    text, n = HAN_NOM_RE.subn("", text)
-    if n:
-        stats["cross_script_tokens_removed"] += n
-        # Clean empty parentheses/brackets or stray punctuation left behind
-        text = re.sub(r"\(\s*\)", "", text)
-        text = re.sub(r"\[\s*\]", "", text)
-        text = re.sub(r"[ \t]{2,}", " ", text)
-        text = text.strip()
-        # If line became only punctuation/symbols (e.g. "—" or ":" or "."), drop it
-        if re.fullmatch(r"[\s\-–—•·.,;:!?()\[\]\"']*", text):
-            return ""
-    return text
+# Numbers & measurement units protection (P01, P02, P04)
+VN_UNITS_PATTERN = (
+    r"(?:đồng\s*cân|đồng\s*cản|đ/c|lạng|phân|chỉ|ly|cân|thăng|hợp|đấu|chén|bát|thìa|"
+    r"giọt|hạt|miếng|lát|tấc|thước|g|kg|mg|ml|cc|ngày|tháng|năm|lần|thang|tuần|giờ|phút|tuổi|độ)"
+)
+CJK_UNITS_PATTERN = r"[兩両錢分厘毫斤升合斗碗盞杯盃枚粒片丸個个條只日次服歲月年寸尺]"
 
+VN_DOSAGE_LINE_RE = re.compile(
+    rf"(?:\b\d+(?:[.,]\d+)?\s*{VN_UNITS_PATTERN}\b|^\s*[-•*]\s*.+\d|\bđồng\s*c[âả]n\b)",
+    re.I,
+)
+CJK_DOSAGE_LINE_RE = re.compile(
+    rf"[一二三四五六七八九十百半\d]+{CJK_UNITS_PATTERN}"
+)
 
-def strip_vietnamese_in_cjk(text: str, stats: dict) -> str:
-    """Remove Vietnamese words from Han-Nom / Chinese-dominant text (preserving units like g, ml, kg, °C)."""
-    text, n = VN_DIAC_WORD_RE.subn("", text)
-    if n:
-        stats["cross_script_tokens_removed"] += n
-        text = re.sub(r"[ \t]{2,}", " ", text).strip()
-    return text
+NUMBER_TOKEN_RE = re.compile(r"\d+(?:[.,/]\d+)?|[一二三四五六七八九十百千万廿卅半]+")
 
 
 def nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
-def clean_latex_and_markdown_vn(text: str, stats: dict) -> str:
+def _extract_number_tokens(s: str) -> list[str]:
+    return NUMBER_TOKEN_RE.findall(s)
+
+
+def _is_dosage_or_item_line(s: str) -> bool:
+    """Return True if a line looks like an herb/dosage line or numbered entry (must not auto-dedup)."""
+    st = s.strip()
+    if not st:
+        return False
+    if re.match(r"^(?:\d+[.)]\s|[-–—•*]\s|[IVX]+\.\s)", st):
+        return True
+    if len(st) < 40 and (VN_DOSAGE_LINE_RE.search(st) or CJK_DOSAGE_LINE_RE.search(st)):
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Cross-script filtering (P09: audited & clean)
+# ---------------------------------------------------------------------------
+
+def strip_han_nom_in_vn(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
+    """Remove Han-Nom / CJK characters from Vietnamese-dominant text with full audit logging."""
+    matches = list(HAN_NOM_RE.finditer(text))
+    if not matches:
+        return text
+
+    orig = text
+    removed_spans = [m.group(0) for m in matches]
+    text, n = HAN_NOM_RE.subn("", text)
+    stats["cross_script_tokens_removed"] += n
+
+    # Clean empty parentheses/brackets or stray punctuation left behind
+    text = re.sub(r"\(\s*\)", "", text)
+    text = re.sub(r"\[\s*\]", "", text)
+    text = re.sub(r"[ \t]{2,}", " ", text).strip()
+    if re.fullmatch(r"[\s\-–—•·.,;:!?()\[\]\"']*", text):
+        text = ""
+
+    if audit is not None:
+        audit.log(
+            rule_id="CROSS_SCRIPT_HAN_IN_VN",
+            original_line=line_no,
+            original_start=matches[0].start(),
+            original_end=matches[-1].end(),
+            before=orig,
+            after=text,
+            reason=f"Removed {n} Han-Nom span(s) in Vietnamese-dominant file: {', '.join(removed_spans[:5])}",
+            review_status="AUTO_APPLIED",
+        )
+    return text
+
+
+def strip_vietnamese_in_cjk(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
+    """Remove Vietnamese words from Han-Nom / Chinese-dominant text (preserving g, ml, kg, °C)."""
+    matches = list(VN_DIAC_WORD_RE.finditer(text))
+    if not matches:
+        return text
+
+    orig = text
+    removed_words = [m.group(0) for m in matches]
+    text, n = VN_DIAC_WORD_RE.subn("", text)
+    stats["cross_script_tokens_removed"] += n
+    text = re.sub(r"[ \t]{2,}", " ", text).strip()
+
+    if audit is not None:
+        audit.log(
+            rule_id="CROSS_SCRIPT_VN_IN_CJK",
+            original_line=line_no,
+            original_start=matches[0].start(),
+            original_end=matches[-1].end(),
+            before=orig,
+            after=text,
+            reason=f"Removed {n} Vietnamese word(s) in CJK-dominant file: {', '.join(removed_words[:5])}",
+            review_status="AUTO_APPLIED",
+        )
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Vietnamese cleaning helpers (P04 fixed + audited)
+# ---------------------------------------------------------------------------
+
+def clean_latex_and_markdown_vn(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
     """Clean LaTeX / Markdown OCR artifacts in Vietnamese texts."""
-    # Remove LaTeX superscript footnote markers: $ ^{3} $, $ ^{(1)} $, $^{2}$, etc.
+    orig = text
+
     def _sub_sup(m):
         stats["inline_footnote_markers_removed"] += 1
+        if audit is not None:
+            audit.log(
+                rule_id="LATEX_SUPERSCRIPT_FOOTNOTE",
+                original_line=line_no,
+                original_start=m.start(),
+                original_end=m.end(),
+                before=m.group(0),
+                after="",
+                reason="Removed LaTeX superscript footnote marker",
+                review_status="AUTO_APPLIED",
+            )
         return ""
 
     text = re.sub(r"\s*\$\s*\^\{\s*\(?\s*\d{1,3}\s*\)?\s*\}\s*\$", _sub_sup, text)
@@ -93,11 +271,11 @@ def clean_latex_and_markdown_vn(text: str, stats: dict) -> str:
     text, n = re.subn(r"\$\s*\\text(?:it|bf|rm|sf|tt)?\{([^}]*)\}\s*\$", r"\1", text)
     stats["garbage_tokens_cleaned"] += n
 
-    # Unwrap unclosed $ \text{... (e.g. L1122 in NDTH)
+    # Unwrap unclosed $ \text{...
     text, n = re.subn(r"\$\s*\\text(?:it|bf|rm)?\{", "", text)
     stats["garbage_tokens_cleaned"] += n
 
-    # Remove leading backslash on lines (e.g. \Dùng gừng..., \*Đất lòng bếp...*)
+    # Remove leading backslash on lines
     text, n = re.subn(r"^\\+\*?", "", text)
     stats["garbage_tokens_cleaned"] += n
 
@@ -107,8 +285,7 @@ def clean_latex_and_markdown_vn(text: str, stats: dict) -> str:
     text, n = re.subn(r"\*([^*\n]+)\*", r"\1", text)
     stats["garbage_tokens_cleaned"] += n
 
-    # Remove remaining stray markdown asterisks, braces, backslashes, carets
-    # Preserve $ only if part of currency like 1.450 $ (though colophon is removed anyway)
+    # Remove remaining stray markdown asterisks, braces, backslashes, carets, $
     text, n = re.subn(r"(?<!\d)\*(?!\d)", "", text)
     stats["garbage_tokens_cleaned"] += n
     text, n = re.subn(r"[\\{}^]", "", text)
@@ -116,19 +293,34 @@ def clean_latex_and_markdown_vn(text: str, stats: dict) -> str:
     text, n = re.subn(r"\$\s*(?![\d])", "", text)
     stats["garbage_tokens_cleaned"] += n
 
-    # Replace OCR table pipes in herb lines: |富歸|ĐƯƠNG QUY|2 dòng -> 富歸 ĐƯƠNG QUY 2 dòng
+    # Replace OCR table pipes in herb lines
     if "|" in text:
         text, n = re.subn(r"\s*\|\s*", " ", text)
         stats["garbage_tokens_cleaned"] += n
 
+    if audit is not None and text != orig:
+        audit.log(
+            rule_id="CLEAN_LATEX_MARKDOWN_VN",
+            original_line=line_no,
+            original_start=0,
+            original_end=len(orig),
+            before=orig,
+            after=text,
+            reason="Cleaned LaTeX/Markdown OCR artifacts",
+            review_status="AUTO_APPLIED",
+        )
     return text
 
 
-def normalize_punctuation_vn(text: str, stats: dict) -> str:
+def normalize_punctuation_vn(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
     """Normalize punctuation and whitespace in Vietnamese text without altering meaning."""
     orig = text
 
-    # Normalize guillemets and CJK brackets/punctuation inside Vietnamese prose
     replacements = [
         ("«", '"'), ("»", '"'),
         ("《", '"'), ("》", '"'),
@@ -143,74 +335,245 @@ def normalize_punctuation_vn(text: str, stats: dict) -> str:
         if old in text:
             text = text.replace(old, new)
 
-    # Normalize multiple dots (4+ dots -> ...)
     text = re.sub(r"\.{4,}", "...", text)
-
-    # Collapse multiple spaces/tabs
     text = re.sub(r"[ \t]{2,}", " ", text)
-
-    # Fix spacing around punctuation: no space before , . ; : ! ? ) ]
     text = re.sub(r"\s+([,.;:!?)\]])", r"\1", text)
-    # No space right after ( [
     text = re.sub(r"([(\[])\s+", r"\1", text)
-
-    # Ensure space after , ; : ! ? when followed by a letter (not digit, to preserve 1,5 / 2:3)
     text = re.sub(r"([,;:])([A-Za-zÀ-ỹĐđ])", r"\1 \2", text)
-    # Ensure space after period when followed by an uppercase letter (not inside acronyms/numbers)
     text = re.sub(r"(?<!\.)\.([A-ZÀ-ỸĐ][a-zà-ỹđ])", r". \1", text)
 
     text = text.strip()
     if text != orig:
         stats["punctuation_ws_normalized_lines"] += 1
+        if audit is not None:
+            audit.log(
+                rule_id="NORMALIZE_PUNCT_WS_VN",
+                original_line=line_no,
+                original_start=0,
+                original_end=len(orig),
+                before=orig,
+                after=text,
+                reason="Normalized punctuation and whitespace in Vietnamese line",
+                review_status="AUTO_APPLIED",
+            )
     return text
 
 
-def remove_inline_footnote_markers_vn(text: str, stats: dict) -> str:
-    """Remove inline footnote index markers like (1), [1], (12) in Vietnamese prose."""
-    def _sub(m):
+# Protected context patterns for P04 (never auto-delete (n) in these contexts)
+_PAREN_PROTECTED_AFTER_RE = re.compile(
+    rf"^\s*(?:{VN_UNITS_PATTERN}\b|đồng(?:\s*[.,;:!?\)]|\s*$))",
+    re.I,
+)
+_PAREN_PROTECTED_BEFORE_RE = re.compile(
+    r"(?:số|trang|mục|bài|quyển|chương|phần|tập|điều|khoản|hạng|loại|thứ|cấp|dùng|uống|lấy|mỗi|khoảng|chừng|\d)\s*$",
+    re.I,
+)
+
+
+def remove_inline_footnote_markers_vn(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+    known_footnotes: set[int] | None = None,
+) -> str:
+    """
+    Remove unambiguous inline footnote index markers like [1], (1), (12) in Vietnamese prose.
+    P04 fix: Protects (n) when followed by measurement/dosage/time units (e.g. 'Phục linh (3) đồng cân')
+    or preceded by digits/reference words (e.g. 'dùng 2 (3) lần', 'số (1)'), logging uncertain cases
+    as POSSIBLE_FOOTNOTE instead of deleting them.
+    """
+    # 1. Remove bracketed [1]..[99] (unambiguous footnote markers; never touch [MASK])
+    def _sub_bracket(m):
         stats["inline_footnote_markers_removed"] += 1
+        if audit is not None:
+            audit.log(
+                rule_id="INLINE_FOOTNOTE_BRACKET",
+                original_line=line_no,
+                original_start=m.start(),
+                original_end=m.end(),
+                before=text[max(0, m.start() - 15):min(len(text), m.end() + 15)],
+                after=(
+                    text[max(0, m.start() - 15):m.start()]
+                    + text[m.end():min(len(text), m.end() + 15)]
+                ),
+                reason=f"Removed bracketed inline footnote marker {m.group(0).strip()}",
+                review_status="AUTO_APPLIED",
+            )
         return ""
 
-    # Remove [1]..[99] anywhere
-    text = re.sub(r"\s*\[\d{1,2}\]", _sub, text)
+    text = re.sub(r"\s*\[\d{1,2}\]", _sub_bracket, text)
 
-    # Remove (1)..(99) when it appears inline (NOT at the very start of a line,
-    # and NOT preceded by 'số ' or 'trang ' or 'mục ', and NOT followed by ' ngày'/' lần'/etc.)
-    text = re.sub(
-        r"(?<!^)(?<!số )(?<!Số )(?<!trang )\s*\(\d{1,2}\)(?!\s*(?:ngày|tháng|năm|lần|thang|chén|bát))",
-        _sub,
-        text,
+    # 2. Context-checked removal of (1)..(99)
+    out_parts: list[str] = []
+    last_end = 0
+    for m in re.finditer(r"(\s*)\((\d{1,2})\)", text):
+        full_start, full_end = m.start(), m.end()
+        num = int(m.group(2))
+        before_ctx = text[:full_start]
+        after_ctx = text[full_end:]
+        snippet = text[max(0, full_start - 20):min(len(text), full_end + 20)]
+
+        # Never delete at very start of line (list/section marker)
+        if full_start == 0:
+            continue
+
+        # Protect dosage / unit / numeric / reference contexts (P04)
+        is_protected_after = bool(_PAREN_PROTECTED_AFTER_RE.match(after_ctx))
+        is_protected_before = bool(_PAREN_PROTECTED_BEFORE_RE.search(before_ctx))
+        if is_protected_after or is_protected_before:
+            stats["possible_footnotes_flagged"] += 1
+            if audit is not None:
+                audit.log(
+                    rule_id="P04_PROTECTED_PAREN_NUMBER",
+                    original_line=line_no,
+                    original_start=full_start,
+                    original_end=full_end,
+                    before=snippet,
+                    after=snippet,
+                    reason=f"Preserved '({num})' due to protected numeric/unit/reference context",
+                    review_status="POSSIBLE_FOOTNOTE",
+                )
+            continue
+
+        # If known_footnotes is supplied and num is not in it, keep & flag for review
+        if known_footnotes is not None and num not in known_footnotes:
+            stats["possible_footnotes_flagged"] += 1
+            if audit is not None:
+                audit.log(
+                    rule_id="P04_UNVERIFIED_PAREN_NUMBER",
+                    original_line=line_no,
+                    original_start=full_start,
+                    original_end=full_end,
+                    before=snippet,
+                    after=snippet,
+                    reason=f"Preserved '({num})' because footnote #{num} was not verified in document notes",
+                    review_status="POSSIBLE_FOOTNOTE",
+                )
+            continue
+
+        # Verified/safe inline footnote marker -> remove & log
+        out_parts.append(text[last_end:full_start])
+        last_end = full_end
+        stats["inline_footnote_markers_removed"] += 1
+        if audit is not None:
+            after_snippet = (
+                text[max(0, full_start - 20):full_start]
+                + text[full_end:min(len(text), full_end + 20)]
+            )
+            audit.log(
+                rule_id="INLINE_FOOTNOTE_PAREN",
+                original_line=line_no,
+                original_start=full_start,
+                original_end=full_end,
+                before=snippet,
+                after=after_snippet,
+                reason=f"Removed inline footnote marker ({num})",
+                review_status="AUTO_APPLIED",
+            )
+
+    if last_end == 0:
+        return text
+    out_parts.append(text[last_end:])
+    return "".join(out_parts)
+
+
+# ---------------------------------------------------------------------------
+# Safe Deduplication (P01 & P02 fixed)
+# ---------------------------------------------------------------------------
+
+def deduplicate_adjacent_lines(
+    lines: list[str] | list[tuple[int, str]],
+    stats: dict,
+    threshold: float = 0.92,
+    audit: AuditLogger | None = None,
+) -> list[str] | list[tuple[int, str]]:
+    """
+    Safe adjacent-line deduplication fixing P01 and P02:
+      - Accepts either list[str] or list[tuple[int, str]] (with source line numbers).
+      - NEVER compares across intervening non-empty lines (fixes P01: two herbs with same dosage).
+      - NEVER auto-deletes short lines (< 25 chars) or dosage/numbered item lines.
+      - NEVER auto-deletes near-duplicates (ratio >= threshold when s != ps); instead flags them
+        as POSSIBLE_DUPLICATE in the audit/review queue and keeps BOTH lines (fixes P02).
+      - Only auto-deletes exact immediately consecutive identical prose lines (len >= 25).
+    """
+    is_indexed = bool(lines) and isinstance(lines[0], tuple)
+    indexed_lines: list[tuple[int, str]] = (
+        lines if is_indexed else [(i + 1, l) for i, l in enumerate(lines)]  # type: ignore[assignment]
     )
-    return text
 
-
-def deduplicate_adjacent_lines(lines: list[str], stats: dict, threshold: float = 0.92) -> list[str]:
-    """Remove exact or near-duplicate adjacent lines caused by OCR overlap."""
-    out = []
-    for line in lines:
+    out: list[tuple[int, str]] = []
+    for line_no, line in indexed_lines:
         s = line.strip()
         if not s:
-            out.append("")
+            out.append((line_no, ""))
             continue
-        # Compare against last non-empty line within recent window
-        is_dup = False
-        for prev in reversed(out[-3:]):
-            ps = prev.strip()
-            if not ps:
-                continue
-            if s == ps and len(s) >= 6:
-                is_dup = True
-                break
-            if len(s) >= 25 and len(ps) >= 25:
+
+        # Only inspect the IMMEDIATELY previous element in `out` (no skipping across other lines!)
+        if out and out[-1][1].strip():
+            prev_line_no, prev_raw = out[-1]
+            ps = prev_raw.strip()
+
+            # Case 1: Exact immediately consecutive match
+            if s == ps:
+                if len(s) >= 25 and not _is_dosage_or_item_line(s):
+                    stats["duplicate_lines_removed"] += 1
+                    if audit is not None:
+                        audit.log(
+                            rule_id="EXACT_CONSECUTIVE_DUPLICATE",
+                            original_line=line_no,
+                            original_start=0,
+                            original_end=len(s),
+                            before=s,
+                            after="",
+                            reason=f"Removed exact consecutive OCR duplicate of line {prev_line_no}",
+                            review_status="AUTO_APPLIED",
+                        )
+                    continue
+                else:
+                    # Short or dosage/item line: keep & flag for review
+                    stats["possible_duplicates_flagged"] += 1
+                    if audit is not None:
+                        audit.log(
+                            rule_id="P01_PROTECTED_EXACT_DUPLICATE",
+                            original_line=line_no,
+                            original_start=0,
+                            original_end=len(s),
+                            before=s,
+                            after=s,
+                            reason=f"Kept short/dosage exact repeat of line {prev_line_no} (protected)",
+                            review_status="POSSIBLE_DUPLICATE",
+                        )
+
+            # Case 2: Near-duplicate -> NEVER auto-delete (P02), only flag for review
+            elif len(s) >= 25 and len(ps) >= 25:
                 ratio = difflib.SequenceMatcher(None, s, ps).ratio()
                 if ratio >= threshold:
-                    is_dup = True
-                    break
-        if is_dup:
-            stats["duplicate_lines_removed"] += 1
-        else:
-            out.append(line)
-    return out
+                    nums_cur = _extract_number_tokens(s)
+                    nums_prev = _extract_number_tokens(ps)
+                    num_note = (
+                        f"numbers differ ({nums_prev} vs {nums_cur})"
+                        if nums_cur != nums_prev
+                        else "numbers match"
+                    )
+                    stats["possible_duplicates_flagged"] += 1
+                    if audit is not None:
+                        audit.log(
+                            rule_id="P02_NEAR_DUPLICATE_FLAGGED",
+                            original_line=line_no,
+                            original_start=0,
+                            original_end=len(s),
+                            before=f"PREV(L{prev_line_no}): {ps} || CURR(L{line_no}): {s}",
+                            after=s,
+                            reason=f"Kept near-duplicate (ratio={ratio:.3f}, {num_note}); requires human review",
+                            review_status="POSSIBLE_DUPLICATE",
+                        )
+
+        out.append((line_no, line))
+
+    if is_indexed:
+        return out
+    return [l for _, l in out]
 
 
 def collapse_blank_lines(lines: list[str]) -> list[str]:
@@ -235,11 +598,8 @@ def collapse_blank_lines(lines: list[str]) -> list[str]:
 
 def is_ndth_footnote_line(s: str) -> bool:
     """Detect bottom-of-page footnote lines in Nam Duoc Than Hieu."""
-    # Pattern 1: starts with (1), (2), ... (99) (allowing optional leading * or \)
     if re.match(r"^[\\*]*\(\d{1,2}\)\s*\S", s):
         return True
-    # Pattern 2: editorial footnotes starting with '1. ', '2. ' (distinguished from
-    # numbered herbs/prescriptions by editorial markers)
     if re.match(r"^\d{1,2}\.\s+", s):
         editorial_markers = [
             "Nguyên bản", "nguyên bản", "BTM", "Bản thảo", "chữ nôm", "chữ Nôm",
@@ -262,55 +622,86 @@ def is_vn_heading_or_item(s: str) -> bool:
         return True
     if re.match(r"^(?:QUYỂN|Quyển|CHƯƠNG|PHẦN|MỤC|BÀI|HẾT|I+V?X?\b|\d+[.)]\s|-\s|—|\*)", s):
         return True
+    if _is_dosage_or_item_line(s):
+        return True
     return False
 
 
-def process_nam_duoc_than_hieu(text: str) -> tuple[str, dict]:
-    stats = defaultdict(int)
+def process_nam_duoc_than_hieu(
+    text: str,
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    stats: dict = defaultdict(int)
     text = nfc(text)
     raw_lines = text.splitlines()
     stats["input_lines"] = len(raw_lines)
     stats["input_chars"] = len(text)
 
-    # 1. Trim front matter (L1..L75: cover, publisher, URL, temple photo, LỜI NÓI ĐẦU,
-    #    TIỂU SỬ, LỜI TỰA, PHÀM LỆ) -> main content starts at L76 ("NAM DƯỢC THẦN HIỆU" / "QUYỂN ĐẦU")
+    # 1. Trim front matter -> main content starts at "QUYỂN ĐẦU" (keep 2 title lines before it)
     start_idx = 0
     for i, l in enumerate(raw_lines):
         if l.strip() == "QUYỂN ĐẦU":
-            start_idx = max(0, i - 2)  # keep "NAM DƯỢC THẦN HIỆU" / "Muời khoa chữa bệnh"
+            start_idx = max(0, i - 2)
             break
     stats["front_matter_lines_removed"] = start_idx
+    if audit is not None and start_idx > 0:
+        audit.log(
+            rule_id="FRONT_MATTER_TRIM",
+            original_line=1,
+            original_start=0,
+            original_end=start_idx,
+            before=f"Lines 1..{start_idx}: {raw_lines[0][:60]} ... {raw_lines[start_idx - 1][:60]}",
+            after="",
+            reason="Removed front matter before main content ('QUYỂN ĐẦU')",
+            review_status="AUTO_APPLIED",
+        )
 
-    # 2. Trim back matter (MỤC LỤC at L11760 to end of file, including colophon & back cover)
+    # 2. Trim back matter ("MỤC LỤC" to EOF)
     end_idx = len(raw_lines)
     for i in range(len(raw_lines) - 1, start_idx, -1):
         if raw_lines[i].strip() == "MỤC LỤC":
             end_idx = i
             break
     stats["back_matter_lines_removed"] = len(raw_lines) - end_idx
+    if audit is not None and end_idx < len(raw_lines):
+        audit.log(
+            rule_id="BACK_MATTER_TRIM",
+            original_line=end_idx + 1,
+            original_start=end_idx,
+            original_end=len(raw_lines),
+            before=f"Lines {end_idx + 1}..{len(raw_lines)}: {raw_lines[end_idx][:60]} ...",
+            after="",
+            reason="Removed back matter starting at 'MỤC LỤC'",
+            review_status="AUTO_APPLIED",
+        )
 
-    lines = raw_lines[start_idx:end_idx]
+    # Collect known footnote numbers from detected footnote lines for P04 verification
+    known_footnotes: set[int] = set()
+    for l in raw_lines[start_idx:end_idx]:
+        s = l.strip()
+        m_fn = re.match(r"^[\\*]*\((\d{1,2})\)\s*\S", s)
+        if m_fn:
+            known_footnotes.add(int(m_fn.group(1)))
 
-    # 3. Filter out internal TOC ("THƯƠNG HÀN CÁCH PHÁP TRỊ LỆ MỤC LỤC"),
-    #    herb illustration plate blocks ("Bảng II/IV/VI/VII"), URLs, page numbers, footnotes
-    filtered = []
+    # 3. Filter internal TOC, herb plates, URLs, standalone page numbers, footnotes
+    filtered: list[tuple[int, str]] = []
     skip_plate = False
     skip_internal_toc = False
 
-    for l in lines:
+    for offset, l in enumerate(raw_lines[start_idx:end_idx]):
+        line_no = start_idx + offset + 1
         s = l.strip()
 
-        # Internal TOC: THƯƠNG HÀN CÁCH PHÁP TRỊ LỆ MỤC LỤC (37 numbered titles)
         if s == "THƯƠNG HÀN CÁCH PHÁP TRỊ LỆ MỤC LỤC":
             skip_internal_toc = True
             stats["non_main_content_lines_removed"] += 1
+            if audit is not None:
+                audit.log("INTERNAL_TOC_REMOVE", line_no, s, "", "Removed internal TOC header")
             continue
         if skip_internal_toc:
-            # Ends when actual prescription I / bài 1 starts (or heading after 37.)
             if re.match(r"^(?:I\b|QUYỂN|THƯƠNG HÀN CÁCH PHÁP TRỊ LỆ$|Bài\s+1\b|1\)\s)", s) and "MỤC LỤC" not in s:
                 skip_internal_toc = False
             elif re.match(r"^37\.\s", s):
-                # Last item of internal TOC
                 skip_internal_toc = False
                 stats["non_main_content_lines_removed"] += 1
                 continue
@@ -318,15 +709,17 @@ def process_nam_duoc_than_hieu(text: str) -> tuple[str, dict]:
                 stats["non_main_content_lines_removed"] += 1
                 continue
 
-        # Watermark URLs
         if re.search(r"https?://vnras\.com", s, re.I):
             stats["headers_footers_removed"] += 1
+            if audit is not None:
+                audit.log("WATERMARK_URL_REMOVE", line_no, s, "", "Removed vnras.com watermark URL")
             continue
 
-        # Image plate blocks: "Bảng II", "Bảng IV", "Bảng VI", "Bảng VII" + short herb captions until blank line
         if re.match(r"^Bảng\s+[IVX]+$", s):
             skip_plate = True
             stats["tables_figures_lines_removed"] += 1
+            if audit is not None:
+                audit.log("PLATE_BLOCK_REMOVE", line_no, s, "", "Removed herb illustration plate header")
             continue
         if skip_plate:
             if not s:
@@ -338,56 +731,55 @@ def process_nam_duoc_than_hieu(text: str) -> tuple[str, dict]:
             else:
                 skip_plate = False
 
-        # Standalone page numbers
         if re.match(r"^\d{1,4}$", s):
             stats["headers_footers_removed"] += 1
+            if audit is not None:
+                audit.log("PAGE_NUMBER_REMOVE", line_no, s, "", "Removed standalone page number")
             continue
 
-        # Footnote lines at page bottoms
         if is_ndth_footnote_line(s):
             stats["footnote_lines_removed"] += 1
+            if audit is not None:
+                audit.log("FOOTNOTE_LINE_REMOVE", line_no, s, "", "Removed bottom-of-page footnote line")
             continue
 
-        filtered.append(l)
+        filtered.append((line_no, l))
 
-    # 4. Clean LaTeX/Markdown artifacts, inline footnote markers, punctuation & whitespace
-    cleaned = []
-    for l in filtered:
+    # 4. Clean LaTeX/Markdown, inline footnotes, Han-Nom cross-script, punctuation
+    cleaned: list[tuple[int, str]] = []
+    for line_no, l in filtered:
         s = l.strip()
         if not s:
-            cleaned.append("")
+            cleaned.append((line_no, ""))
             continue
-        s = clean_latex_and_markdown_vn(s, stats)
-        s = remove_inline_footnote_markers_vn(s, stats)
-        s = strip_han_nom_in_vn(s, stats)
+        s = clean_latex_and_markdown_vn(s, stats, audit=audit, line_no=line_no)
+        s = remove_inline_footnote_markers_vn(
+            s, stats, audit=audit, line_no=line_no,
+            known_footnotes=known_footnotes if known_footnotes else None,
+        )
+        s = strip_han_nom_in_vn(s, stats, audit=audit, line_no=line_no)
         if not s:
             continue
-        s = normalize_punctuation_vn(s, stats)
+        s = normalize_punctuation_vn(s, stats, audit=audit, line_no=line_no)
         if s:
-            cleaned.append(s)
+            cleaned.append((line_no, s))
 
-    # 5. Deduplicate adjacent OCR duplicate lines
-    cleaned = deduplicate_adjacent_lines(cleaned, stats)
+    # 5. Safe deduplication (P01 & P02 fixed)
+    cleaned = deduplicate_adjacent_lines(cleaned, stats, audit=audit)  # type: ignore[assignment]
 
-    # 6. Merge sentences broken across page breaks / line breaks
-    #    Only merge when previous line does NOT end with terminal punctuation,
-    #    is long enough to be prose (>= 45 chars), and next line starts with a lowercase letter
-    #    (preserving poems, headings, and numbered items).
-    merged = []
+    # 6. Merge prose lines broken across page/line breaks (P10: audited & protected)
+    merged: list[str] = []
     i = 0
     while i < len(cleaned):
-        cur = cleaned[i]
+        cur_ln, cur = cleaned[i]
         if not cur:
             merged.append("")
             i += 1
             continue
         while i + 1 < len(cleaned):
-            # Peek next non-empty line if separated by at most 1 blank line (page break artifact)
             nxt_idx = i + 1
-            if nxt_idx < len(cleaned) and not cleaned[nxt_idx] and nxt_idx + 1 < len(cleaned):
-                cand = cleaned[nxt_idx + 1]
-                # Only bridge across a blank line if cur ends mid-sentence (no terminal punct)
-                # AND cand starts with lowercase Vietnamese letter
+            if nxt_idx < len(cleaned) and not cleaned[nxt_idx][1] and nxt_idx + 1 < len(cleaned):
+                cand_ln, cand = cleaned[nxt_idx + 1]
                 if (
                     len(cur) >= 45
                     and not is_vn_heading_or_item(cur)
@@ -396,14 +788,22 @@ def process_nam_duoc_than_hieu(text: str) -> tuple[str, dict]:
                     and cand[0].islower()
                     and not is_vn_heading_or_item(cand)
                 ):
+                    if audit is not None:
+                        audit.log(
+                            "VN_PAGE_BREAK_MERGE",
+                            cur_ln,
+                            f"{cur[-30:]} [L{cur_ln}..L{cand_ln}] {cand[:30]}",
+                            f"{cur[-30:]} {cand[:30]}",
+                            f"Merged prose across blank line (L{cur_ln} + L{cand_ln})",
+                        )
                     cur = cur + " " + cand
                     stats["page_break_merges"] += 1
                     i = nxt_idx + 1
                     continue
                 else:
                     break
-            elif nxt_idx < len(cleaned) and cleaned[nxt_idx]:
-                cand = cleaned[nxt_idx]
+            elif nxt_idx < len(cleaned) and cleaned[nxt_idx][1]:
+                cand_ln, cand = cleaned[nxt_idx]
                 if (
                     len(cur) >= 45
                     and not is_vn_heading_or_item(cur)
@@ -411,6 +811,14 @@ def process_nam_duoc_than_hieu(text: str) -> tuple[str, dict]:
                     and cand[0].islower()
                     and not is_vn_heading_or_item(cand)
                 ):
+                    if audit is not None:
+                        audit.log(
+                            "VN_LINE_WRAP_MERGE",
+                            cur_ln,
+                            f"{cur[-30:]} [L{cur_ln}+L{cand_ln}] {cand[:30]}",
+                            f"{cur[-30:]} {cand[:30]}",
+                            f"Merged wrapped prose lines (L{cur_ln} + L{cand_ln})",
+                        )
                     cur = cur + " " + cand
                     stats["page_break_merges"] += 1
                     i = nxt_idx
@@ -433,80 +841,120 @@ def process_nam_duoc_than_hieu(text: str) -> tuple[str, dict]:
 # 2. Processor: nam_khoa_nu_khoa.txt
 # ---------------------------------------------------------------------------
 
-def process_nam_khoa_nu_khoa(text: str) -> tuple[str, dict]:
-    stats = defaultdict(int)
+def process_nam_khoa_nu_khoa(
+    text: str,
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    stats: dict = defaultdict(int)
     text = nfc(text)
     raw_lines = text.splitlines()
     stats["input_lines"] = len(raw_lines)
     stats["input_chars"] = len(text)
 
-    # 1. Remove translator credit header line 1 ("DỊCH GIÁ: ĐỊNH NINH - LỄ ĐỨC THIẾP")
+    # 1. Remove translator credit header line 1
     start_idx = 0
     if raw_lines and re.match(r"^DỊCH GI[ẢÁ]:", raw_lines[0].strip()):
         start_idx = 1
         stats["front_matter_lines_removed"] = 1
+        if audit is not None:
+            audit.log("FRONT_MATTER_TRIM", 1, raw_lines[0], "", "Removed translator credit header")
 
-    # 2. Remove endnotes section ("PHỤ CHÚ về NỮ KHOA của DỊCH GIẢ", L2872..L3218)
-    #    and back matter ("MỤC LỤC NỮ KHOA" + publisher colophon, L3219..L3356)
+    # 2. Remove endnotes section ("附註女科" / "PHỤ CHÚ về NỮ KHOA") & back matter
     end_idx = len(raw_lines)
     for i, l in enumerate(raw_lines):
         if l.strip() == "附註女科":
             end_idx = i
             break
-    # Also strip trailing "HÉT" right before endnotes
+    # Collect verified endnote numbers from the endnotes section if present
+    known_footnotes: set[int] | None = None
+    if end_idx < len(raw_lines):
+        found_notes: set[int] = set()
+        for l in raw_lines[end_idx:]:
+            m_en = re.match(r"^\s*\(?(\d{1,2})[.)]\s+", l)
+            if m_en:
+                found_notes.add(int(m_en.group(1)))
+        if found_notes:
+            known_footnotes = found_notes
+
     while end_idx > start_idx and raw_lines[end_idx - 1].strip() in ("", "HÉT", "HẾT", "oOo"):
         end_idx -= 1
 
     stats["back_matter_and_endnotes_lines_removed"] = len(raw_lines) - end_idx
-
-    lines = raw_lines[start_idx:end_idx]
+    if audit is not None and end_idx < len(raw_lines):
+        audit.log(
+            "BACK_MATTER_ENDNOTES_TRIM",
+            end_idx + 1,
+            f"Lines {end_idx + 1}..{len(raw_lines)}: {raw_lines[end_idx][:60]} ...",
+            "",
+            "Removed translator endnotes ('附註女科') and back matter TOC/colophon",
+            original_start=end_idx,
+            original_end=len(raw_lines),
+        )
 
     # 3. Clean lines
-    cleaned = []
-    for l in lines:
+    cleaned: list[tuple[int, str]] = []
+    for offset, l in enumerate(raw_lines[start_idx:end_idx]):
+        line_no = start_idx + offset + 1
         s = l.strip()
         if not s:
-            cleaned.append("")
+            cleaned.append((line_no, ""))
             continue
-        # Remove decorative dividers (oOo, O Oo, o0o, ---, ***)
         if re.fullmatch(r"(?:[oO0]\s*[oO0]\s*[oO0]|-{3,}|\*{3,})", s):
             stats["headers_footers_removed"] += 1
+            if audit is not None:
+                audit.log("DECORATIVE_DIVIDER_REMOVE", line_no, s, "", "Removed decorative divider")
             continue
-        # Remove inline cross-reference to footnotes: (Xem phụ chú Nam Khoa)
-        s, n = re.subn(r"\s*\(Xem phụ chú[^)]*\)", "", s, flags=re.I)
-        stats["inline_footnote_markers_removed"] += n
 
-        s = clean_latex_and_markdown_vn(s, stats)
-        s = remove_inline_footnote_markers_vn(s, stats)
-        s = strip_han_nom_in_vn(s, stats)
+        orig_s = s
+        s, n = re.subn(r"\s*\(Xem phụ chú[^)]*\)", "", s, flags=re.I)
+        if n:
+            stats["inline_footnote_markers_removed"] += n
+            if audit is not None:
+                audit.log("INLINE_FOOTNOTE_XREF", line_no, orig_s, s, "Removed '(Xem phụ chú ...)' cross-reference")
+
+        s = clean_latex_and_markdown_vn(s, stats, audit=audit, line_no=line_no)
+        s = remove_inline_footnote_markers_vn(
+            s, stats, audit=audit, line_no=line_no, known_footnotes=known_footnotes
+        )
+        s = strip_han_nom_in_vn(s, stats, audit=audit, line_no=line_no)
         if not s:
             continue
-        s = normalize_punctuation_vn(s, stats)
+        s = normalize_punctuation_vn(s, stats, audit=audit, line_no=line_no)
         if s:
-            cleaned.append(s)
+            cleaned.append((line_no, s))
 
-    # 4. Deduplicate adjacent lines
-    cleaned = deduplicate_adjacent_lines(cleaned, stats)
+    # 4. Safe deduplication (P01 & P02 fixed)
+    cleaned = deduplicate_adjacent_lines(cleaned, stats, audit=audit)  # type: ignore[assignment]
 
-    # 5. Merge sentences broken across lines/pages (only prose lines, not Han headings or herb dosage lines)
-    merged = []
+    # 5. Merge sentences broken across lines/pages (protect headings & herb dosage lines)
+    merged: list[str] = []
     i = 0
     while i < len(cleaned):
-        cur = cleaned[i]
+        cur_ln, cur = cleaned[i]
         if not cur:
             merged.append("")
             i += 1
             continue
         while i + 1 < len(cleaned):
-            cand = cleaned[i + 1]
+            cand_ln, cand = cleaned[i + 1]
             if (
                 cand
                 and len(cur) >= 50
+                and not is_vn_heading_or_item(cur)
                 and cur[-1] not in ".!?:;)\""
                 and cand[0].islower()
+                and not is_vn_heading_or_item(cand)
                 and not re.match(r"^[\u4e00-\u9fff]", cur)
                 and not re.match(r"^[\u4e00-\u9fff]", cand)
             ):
+                if audit is not None:
+                    audit.log(
+                        "VN_LINE_WRAP_MERGE",
+                        cur_ln,
+                        f"{cur[-30:]} [L{cur_ln}+L{cand_ln}] {cand[:30]}",
+                        f"{cur[-30:]} {cand[:30]}",
+                        f"Merged wrapped prose lines (L{cur_ln} + L{cand_ln})",
+                    )
                 cur = cur + " " + cand
                 stats["page_break_merges"] += 1
                 i += 1
@@ -526,118 +974,197 @@ def process_nam_khoa_nu_khoa(text: str) -> tuple[str, dict]:
 # 3. Processor: Pho_Thanh_Chu_Nu_Khoa.txt (Classical Chinese, Traditional)
 # ---------------------------------------------------------------------------
 
-def normalize_cjk_punct_and_ws(text: str, stats: dict) -> str:
+def normalize_cjk_punct_and_ws(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
     orig = text
-    # Remove any Vietnamese words in CJK-dominant text
-    text = strip_vietnamese_in_cjk(text, stats)
-    # Normalize variant CJK punctuation
+    text = strip_vietnamese_in_cjk(text, stats, audit=audit, line_no=line_no)
     text = text.replace("︰", "：").replace("﹗", "！").replace("‧", "·")
     text = re.sub(r"\.{4,}", "……", text)
-    # Remove spaces between CJK characters
-    text = re.sub(r"(?<=[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef])\s+(?=[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef])", "", text)
-    # Collapse remaining multiple spaces
+    text = re.sub(
+        r"(?<=[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef])\s+(?=[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef])",
+        "",
+        text,
+    )
     text = re.sub(r"[ \t]{2,}", " ", text).strip()
     if text != orig:
         stats["punctuation_ws_normalized_lines"] += 1
+        if audit is not None:
+            audit.log(
+                "NORMALIZE_PUNCT_WS_CJK",
+                line_no,
+                orig[:120],
+                text[:120],
+                "Normalized CJK punctuation and whitespace",
+            )
     return text
 
 
-def process_pho_thanh_chu(text: str) -> tuple[str, dict]:
-    stats = defaultdict(int)
+def process_pho_thanh_chu(
+    text: str,
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    stats: dict = defaultdict(int)
     text = nfc(text)
     raw_lines = text.splitlines()
     stats["input_lines"] = len(raw_lines)
     stats["input_chars"] = len(text)
 
-    cleaned = []
+    cleaned: list[tuple[int, str]] = []
     skip_meipi = False
-    for l in raw_lines:
+    for line_no, l in enumerate(raw_lines, 1):
         s = l.strip()
         if not s:
             if skip_meipi:
                 skip_meipi = False
-            cleaned.append("")
+            cleaned.append((line_no, ""))
             continue
 
         # Remove marginalia commentary blocks (眉批︰ ... up to blank line or 歌括)
         if s.startswith("眉批"):
             skip_meipi = True
             stats["footnote_lines_removed"] += 1
+            if audit is not None:
+                audit.log("MEIPI_MARGINALIA_REMOVE", line_no, s, "", "Removed marginalia header '眉批'")
             continue
         if skip_meipi:
             if s.startswith("歌括"):
                 skip_meipi = False
             else:
                 stats["footnote_lines_removed"] += 1
+                if audit is not None:
+                    audit.log("MEIPI_MARGINALIA_REMOVE", line_no, s, "", "Removed marginalia commentary line")
                 continue
 
         # Remove editorial index numbers at end of titles like 身瘦不孕（29）
+        orig_s = s
         s, n = re.subn(r"（\d{1,3}）$", "", s)
-        stats["inline_footnote_markers_removed"] += n
+        if n:
+            stats["inline_footnote_markers_removed"] += n
+            if audit is not None:
+                audit.log("EDITORIAL_TITLE_INDEX_REMOVE", line_no, orig_s, s, "Removed trailing editorial index")
 
         # Remove decorative bullet symbol ◎ at start of lines
         if s.startswith("◎"):
+            orig_s = s
             s = s.lstrip("◎").strip()
             stats["garbage_tokens_cleaned"] += 1
+            if audit is not None:
+                audit.log("DECORATIVE_BULLET_REMOVE", line_no, orig_s, s, "Removed leading decorative '◎'")
 
-        s = normalize_cjk_punct_and_ws(s, stats)
+        s = normalize_cjk_punct_and_ws(s, stats, audit=audit, line_no=line_no)
         if s:
-            cleaned.append(s)
+            cleaned.append((line_no, s))
 
-    cleaned = deduplicate_adjacent_lines(cleaned, stats)
-    cleaned = collapse_blank_lines(cleaned)
-    out = "\n".join(cleaned) + "\n"
-    stats["output_lines"] = len(cleaned)
+    cleaned = deduplicate_adjacent_lines(cleaned, stats, audit=audit)  # type: ignore[assignment]
+    final_lines = collapse_blank_lines([l for _, l in cleaned])
+    out = "\n".join(final_lines) + "\n"
+    stats["output_lines"] = len(final_lines)
     stats["output_chars"] = len(out)
     return out, dict(stats)
 
 
 # ---------------------------------------------------------------------------
-# 4. Processor: Linh khởi điểm học trung y... (Simplified Chinese, 1 page/line)
+# 4. CJK LaTeX cleaning & Heading-Aware Page Merging (P05 & P10 fixed)
 # ---------------------------------------------------------------------------
 
-def clean_latex_cjk(text: str, stats: dict) -> str:
+def clean_latex_cjk(
+    text: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
     """Clean LaTeX OCR artifacts in Simplified Chinese textbooks."""
-    # Emphasis dots: $\underset{\cdot}{及}$ -> 及
+    orig = text
     text, n = re.subn(r"\$\s*\\underset\{\\cdot\}\{([^}]+)\}\s*\$", r"\1", text)
     stats["garbage_tokens_cleaned"] += n
-    # Chained emphasis dots inside one $...$: $\underset{\cdot}{影}\underset{\cdot}{响}$
+
     def _unwrap_underset(m):
         inner = re.sub(r"\\underset\{\\cdot\}\{([^}]+)\}", r"\1", m.group(1))
         stats["garbage_tokens_cleaned"] += 1
         return inner
-    text = re.sub(r"\$([^$]*\\underset[^$]*)\$", _unwrap_underset, text)
 
-    # Temperature: $37^{\circ}C$ -> 37°C, $40°C -> 40°C, 37\circC -> 37°C, $^\circ C$ -> °C
+    text = re.sub(r"\$([^$]*\\underset[^$]*)\$", _unwrap_underset, text)
     text, n = re.subn(r"\$?\s*\^?\{?\s*\\circ\s*\}?\s*(?:\\text|\\mathrm)?\{?\s*C\s*\}?\s*\$?", "°C", text)
     stats["garbage_tokens_cleaned"] += n
     text, n = re.subn(r"\$(\d+(?:\.\d+)?°C)", r"\1", text)
     stats["garbage_tokens_cleaned"] += n
-    # \sim -> ~
     text, n = re.subn(r"\$?\s*\\sim\s*\$?", "~", text)
     stats["garbage_tokens_cleaned"] += n
-
-    # \underline{\text{...}} -> ...
     text, n = re.subn(r"\$\\underline\{\\text\{([^}]+)\}\}\$", r"\1", text)
     stats["garbage_tokens_cleaned"] += n
-
-    # Literal \n inside OCR strings -> space
     text, n = re.subn(r"\\n", "", text)
     stats["garbage_tokens_cleaned"] += n
 
+    if audit is not None and text != orig:
+        audit.log(
+            "CLEAN_LATEX_CJK",
+            line_no,
+            orig[:120],
+            text[:120],
+            "Cleaned LaTeX OCR artifacts in CJK text",
+        )
     return text
 
 
-def merge_cjk_pages(pages: list[str], stats: dict) -> list[str]:
-    """Merge sentences split across page breaks in CJK page-per-line OCR files."""
+_CJK_HEADING_PREFIX_RE = re.compile(
+    r"^(?:"
+    r"第[一二三四五六七八九十百千万\d]+[章节篇回课堂讲部卷节]"
+    r"|上篇|中篇|下篇|总论|各论|绪言|前言|引言|导论|小结|附录[A-Z\d]?|附[：:]|思考[：:]|练习案例"
+    r"|【[^】]{1,20}】"
+    r"|[一二三四五六七八九十]+、"
+    r"|（[一二三四五六七八九十\d]+）"
+    r"|\d+\.\d+(?:\.\d+)?\s*[\u4e00-\u9fff]"
+    r")"
+)
+
+
+def is_cjk_heading(s: str) -> bool:
+    """Detect whether a CJK string starts with (or is) a chapter/section/lesson heading (P05)."""
+    st = s.strip()
+    if not st:
+        return False
+    if _CJK_HEADING_PREFIX_RE.match(st):
+        return True
+    # Short title-only line without clause/terminal punctuation
+    if len(st) <= 25 and not re.search(r"[，、。！？；：,.!?;:]", st):
+        return True
+    return False
+
+
+def merge_cjk_pages(
+    pages: list[str],
+    stats: dict,
+    audit: AuditLogger | None = None,
+) -> list[str]:
+    """
+    Merge sentences split across page breaks in CJK page-per-line OCR files.
+    P05 fix: Never merges when the next page starts with a chapter/section heading OR
+    when the previous chunk is itself a standalone short heading.
+    """
     if not pages:
         return []
     merged = [pages[0]]
     term_punct = set("。！？；：”’）】》.!?;:")
-    for p in pages[1:]:
+
+    for idx, p in enumerate(pages[1:], 2):
         prev = merged[-1]
-        # If previous page does not end with sentence-ending punctuation, merge seamlessly
-        if prev and prev[-1] not in term_punct:
+        prev_ends_punct = bool(prev) and prev[-1] in term_punct
+        next_is_heading = is_cjk_heading(p)
+        prev_is_short_heading = len(prev) <= 40 and is_cjk_heading(prev)
+
+        if prev and not prev_ends_punct and not next_is_heading and not prev_is_short_heading:
+            if audit is not None:
+                audit.log(
+                    "CJK_PAGE_BREAK_MERGE",
+                    idx,
+                    f"{prev[-20:]} | {p[:20]}",
+                    f"{prev[-20:]}{p[:20]}",
+                    f"Merged CJK page {idx} into preceding incomplete sentence",
+                )
             merged[-1] = prev + p
             stats["page_break_merges"] += 1
         else:
@@ -645,72 +1172,87 @@ def merge_cjk_pages(pages: list[str], stats: dict) -> list[str]:
     return merged
 
 
-def process_linh_khoi_diem(text: str) -> tuple[str, dict]:
-    stats = defaultdict(int)
+# ---------------------------------------------------------------------------
+# 5. Processor: Linh khởi điểm học trung y... (Simplified Chinese)
+# ---------------------------------------------------------------------------
+
+def process_linh_khoi_diem(
+    text: str,
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    stats: dict = defaultdict(int)
     text = nfc(text)
     raw_lines = text.splitlines()
     stats["input_lines"] = len(raw_lines)
     stats["input_chars"] = len(text)
 
-    non_empty = [l.strip() for l in raw_lines if l.strip()]
+    non_empty = [(i + 1, l.strip()) for i, l in enumerate(raw_lines) if l.strip()]
 
-    # 1. Remove front matter (covers, back cover, title, CIP, prefaces, TOC)
-    #    Main content starts at "体验——中医入门之道"
     start_idx = 0
-    for i, p in enumerate(non_empty):
+    for i, (_, p) in enumerate(non_empty):
         if p.startswith("体验——中医入门之道"):
             start_idx = i
             break
     stats["front_matter_pages_removed"] = start_idx
+    if audit is not None and start_idx > 0:
+        audit.log(
+            "FRONT_MATTER_TRIM",
+            non_empty[0][0],
+            f"{start_idx} front-matter pages before '体验——中医入门之道'",
+            "",
+            "Removed covers, CIP, prefaces, and TOC",
+        )
 
-    # 2. Remove back matter (附录C网友学习感言 & 后记)
     end_idx = len(non_empty)
-    for i, p in enumerate(non_empty):
+    for i, (_, p) in enumerate(non_empty):
         if p.startswith("附录C"):
             end_idx = i
             break
     stats["back_matter_pages_removed"] = len(non_empty) - end_idx
+    if audit is not None and end_idx < len(non_empty):
+        audit.log(
+            "BACK_MATTER_TRIM",
+            non_empty[end_idx][0],
+            f"{len(non_empty) - end_idx} back-matter pages starting at '附录C'",
+            "",
+            "Removed reader testimonials (附录C) and postscript (后记)",
+        )
 
     pages = non_empty[start_idx:end_idx]
 
-    # 3. Clean page-level watermarks, running headers, LaTeX, garbage symbols, whitespace
-    cleaned_pages = []
-    for p in pages:
-        # Skip pure watermark page (e.g., "更多精彩欢迎访问：中医中药论坛：http：//bbs.zhong-yao.net")
+    cleaned_pages: list[tuple[int, str]] = []
+    for line_no, p in pages:
         if re.fullmatch(r"更多精彩欢迎访问[：:]中医中药论坛[：:]https?[：:]//\S+", p):
             stats["headers_footers_removed"] += 1
+            if audit is not None:
+                audit.log("WATERMARK_PAGE_REMOVE", line_no, p, "", "Removed pure forum watermark page")
             continue
 
-        # Strip embedded forum watermark & running book header
+        orig_p = p
         p, n = re.subn(r"更多精彩欢迎访问[：:]中医中药论坛[：:]https?[：:]//\S+", "", p)
         stats["headers_footers_removed"] += n
-        p, n = re.subn(r"^——带你体验中医的12堂课", "", p)
-        stats["headers_footers_removed"] += n
+        p, n2 = re.subn(r"^——带你体验中医的12堂课", "", p)
+        stats["headers_footers_removed"] += n2
+        if audit is not None and (n or n2):
+            audit.log("RUNNING_HEADER_WATERMARK_REMOVE", line_no, orig_p[:80], p[:80], "Removed forum watermark / running header")
 
-        # Clean LaTeX artifacts
-        p = clean_latex_cjk(p, stats)
+        p = clean_latex_cjk(p, stats, audit=audit, line_no=line_no)
 
-        # Replace OCR bullet symbol § (used in "思考§..." questions) with clean newline/space or bullet
-        # Replace § with a clean fullwidth space or nothing after 思考
         p, n = re.subn(r"思考§", "思考：", p)
         stats["garbage_tokens_cleaned"] += n
         p, n = re.subn(r"恩考§", "思考：", p)
         stats["garbage_tokens_cleaned"] += n
         p, n = re.subn(r"§", "", p)
         stats["garbage_tokens_cleaned"] += n
-
-        # Normalize stray LaTeX chars
         p, n = re.subn(r"[\$\\{}^]", "", p)
         stats["garbage_tokens_cleaned"] += n
 
-        # Normalize CJK punctuation & whitespace
-        p = normalize_cjk_punct_and_ws(p, stats)
+        p = normalize_cjk_punct_and_ws(p, stats, audit=audit, line_no=line_no)
         if p:
-            cleaned_pages.append(p)
+            cleaned_pages.append((line_no, p))
 
-    # 4. Deduplicate any repeated pages & merge page-break split sentences
-    cleaned_pages = deduplicate_adjacent_lines(cleaned_pages, stats)
-    merged = merge_cjk_pages(cleaned_pages, stats)
+    cleaned_pages = deduplicate_adjacent_lines(cleaned_pages, stats, audit=audit)  # type: ignore[assignment]
+    merged = merge_cjk_pages([p for _, p in cleaned_pages], stats, audit=audit)
 
     out = "\n\n".join(merged) + "\n"
     stats["output_lines"] = len(merged)
@@ -719,85 +1261,96 @@ def process_linh_khoi_diem(text: str) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------------------
-# 5. Processor: phuong-te-hoc... (Simplified Chinese, 1 page/line)
+# 6. Processor: phuong-te-hoc... (Simplified Chinese, P08 table fix!)
 # ---------------------------------------------------------------------------
 
-def process_phuong_te_hoc(text: str) -> tuple[str, dict]:
-    stats = defaultdict(int)
+def process_phuong_te_hoc(
+    text: str,
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    stats: dict = defaultdict(int)
     text = nfc(text)
     raw_lines = text.splitlines()
     stats["input_lines"] = len(raw_lines)
     stats["input_chars"] = len(text)
 
-    non_empty = [l.strip() for l in raw_lines if l.strip()]
+    non_empty = [(i + 1, l.strip()) for i, l in enumerate(raw_lines) if l.strip()]
 
-    # 1. Remove front matter: cover (0), 前言 (1), 编写说明 (2), and 目录 (5..9)
-    #    Keep 绪言 (3..4) and 上篇总论 (10..) up to end of main text (before 附录1.常用中成药简表)
-    kept_pages = []
-    for i, p in enumerate(non_empty):
-        # Stop at 附录1 (which starts the tables appendix, followed by 附录2 方歌 and stroke index)
+    kept_pages: list[tuple[int, str]] = []
+    for i, (line_no, p) in enumerate(non_empty):
         if p.startswith("附录1.") or p.startswith("附录1．"):
             stats["back_matter_and_table_appendix_pages_removed"] = len(non_empty) - i
+            if audit is not None:
+                audit.log(
+                    "BACK_MATTER_APPENDIX_TRIM",
+                    line_no,
+                    f"{len(non_empty) - i} pages starting at '{p[:40]}'",
+                    "",
+                    "Removed table appendix (附录1), mnemonic songs (附录2), and stroke index",
+                )
             break
-        # Skip cover, 前言, 编写说明
         if i <= 2 and (p.startswith("高等医药院校教材") or p.startswith("前言") or p.startswith("编写说明")):
             stats["front_matter_pages_removed"] += 1
+            if audit is not None:
+                audit.log("FRONT_MATTER_TRIM", line_no, p[:80], "", "Removed cover / preface / editorial notes")
             continue
-        # Skip TOC pages (目录... and continuation pages ending with page numbers like .....48 / .....226)
         if p.startswith("目录") or (i <= 10 and p.count(".....") >= 3):
             stats["front_matter_pages_removed"] += 1
+            if audit is not None:
+                audit.log("TOC_PAGE_REMOVE", line_no, p[:80], "", "Removed TOC page")
             continue
-        kept_pages.append(p)
+        kept_pages.append((line_no, p))
 
-    # 2. Clean embedded tables, LaTeX, superscript footnote markers, garbage chars
-    cleaned_pages = []
-    for p in kept_pages:
-        # Remove embedded comparison tables:
-        #   - 表1四逆汤和通脉四逆汤鉴别表... (to end of that page)
-        if "表1四逆汤和通脉四逆汤鉴别表" in p:
-            idx = p.index("表1四逆汤和通脉四逆汤鉴别表")
-            # Also trim broken fragment right before it if needed
-            p = p[:idx].rstrip("、")
-            stats["tables_figures_lines_removed"] += 1
-        #   - Page starting with 表2小承气汤与厚朴三物汤鉴别表 ... 表3 ... 表4 ...
-        if p.startswith("表2小承气汤与厚朴三物汤鉴别表"):
-            # Keep only the prose paragraph between 表2 and 表3 (around "3.2.3" / "（3）剂型更换的变化") if present
-            # Let's extract any non-table prose sentences or skip the table portions cleanly:
-            # Remove 表2..up to next prose, 表3..up to next prose, 表4..to end
-            p = re.sub(r"表2小承气汤与厚朴三物汤鉴别表.*?(?=（[23]）|剂型更换|$)", "", p)
-            p = re.sub(r"表3抵当汤和抵当丸鉴别表.*?(?=（[34]）|药量增减|药味加减|$)", "", p)
-            p = re.sub(r"表4麻黄杏仁甘草石膏汤与麻黄汤鉴别表.*$", "", p)
-            stats["tables_figures_lines_removed"] += 3
-        #   - 表5历代衡量与辩的对照表...
-        if "表5历代衡量" in p:
-            p = re.sub(r"表5历代衡量.*$", "", p)
-            stats["tables_figures_lines_removed"] += 1
+    # Exact table span patterns (P08 fix: NEVER eat prose after 表2, 表3, 表5!)
+    table_patterns = [
+        ("表1", r"表1四逆汤和通脉四逆汤鉴别表.*$"),
+        ("表2", r"表2小承气汤与厚朴三物汤鉴别表.*?分三服"),
+        ("表3", r"表3抵当汤和抵当丸鉴别表.*?24小时后当下血，不下再服"),
+        ("表4", r"表4麻黄杏仁甘草石膏汤与麻黄汤鉴别表.*?（以清泄肺热为主）"),
+        ("表5", r"表5历代衡量与辩的对照表.*?1\.0355市升"),
+    ]
 
-        # Clean LaTeX emphasis dots, temperatures, \n
-        p = clean_latex_cjk(p, stats)
+    cleaned_pages: list[tuple[int, str]] = []
+    for line_no, p in kept_pages:
+        for tname, pat in table_patterns:
+            m = re.search(pat, p)
+            if m:
+                removed = m.group(0)
+                p = p[:m.start()] + p[m.end():]
+                stats["tables_figures_lines_removed"] += 1
+                if audit is not None:
+                    audit.log(
+                        "EMBEDDED_TABLE_REMOVE",
+                        line_no,
+                        removed[:100] + ("..." if len(removed) > 100 else ""),
+                        "",
+                        f"Removed embedded comparison table {tname} while preserving surrounding prose",
+                        original_start=m.start(),
+                        original_end=m.end(),
+                    )
 
-        # Handle LaTeX superscripts $^{1}$, $^{2}$, $^{3}$:
-        # - Inside 臣药/佐药/使药 definitions ("有两种意义。$^{1}$辅助..."), convert to ①②③ to keep meaning
-        # - After citations/quotes (e.g. ”。$^{1}$), remove as inline footnote markers
+        p = clean_latex_cjk(p, stats, audit=audit, line_no=line_no)
+
         if any(k in p for k in ("臣药：有两种意义", "佐药：有三种意义", "使药：有两种意义")):
             sup_map = {"1": "①", "2": "②", "3": "③"}
             p = re.sub(r"\$\^\{([123])\}\$", lambda m: sup_map[m.group(1)], p)
+
         def _sub_sup(m):
             stats["inline_footnote_markers_removed"] += 1
+            if audit is not None:
+                audit.log("INLINE_CITATION_SUP_REMOVE", line_no, m.group(0), "", "Removed inline LaTeX superscript citation")
             return ""
-        p = re.sub(r"\$\s*\^\{\s*\d{1,2}\s*\}\s*\$", _sub_sup, p)
 
-        # Remove remaining stray LaTeX symbols
+        p = re.sub(r"\$\s*\^\{\s*\d{1,2}\s*\}\s*\$", _sub_sup, p)
         p, n = re.subn(r"[\$\\{}^]", "", p)
         stats["garbage_tokens_cleaned"] += n
 
-        # Normalize punctuation & whitespace
-        p = normalize_cjk_punct_and_ws(p, stats)
+        p = normalize_cjk_punct_and_ws(p, stats, audit=audit, line_no=line_no)
         if p:
-            cleaned_pages.append(p)
+            cleaned_pages.append((line_no, p))
 
-    cleaned_pages = deduplicate_adjacent_lines(cleaned_pages, stats)
-    merged = merge_cjk_pages(cleaned_pages, stats)
+    cleaned_pages = deduplicate_adjacent_lines(cleaned_pages, stats, audit=audit)  # type: ignore[assignment]
+    merged = merge_cjk_pages([p for _, p in cleaned_pages], stats, audit=audit)
 
     out = "\n\n".join(merged) + "\n"
     stats["output_lines"] = len(merged)
@@ -806,13 +1359,11 @@ def process_phuong_te_hoc(text: str) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------------------
-# 6. Processor: Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q{5,6,8,9,10}
+# 7. Processor: Tân_san_Nam_dược_thần_hiệu_thập_khoa_ứng_trị_q{5,6,8,9,10}
+#    (P03 fixed: replace Bopomofo/Kana with [MASK] + NEEDS_REVIEW audit log!)
 # ---------------------------------------------------------------------------
 
-CJK_NUM = r"[一二三四五六七八九十廿卅百\d]+"
-
 def _cjk_to_int(s: str) -> int | None:
-    """Parse a woodblock folio number like 九, 十一, 六四, 四13 into an int if valid."""
     if not s:
         return None
     if s.isdigit():
@@ -828,111 +1379,155 @@ def _cjk_to_int(s: str) -> int | None:
         if s[0] in digits and s[1] == "十":
             return digits[s[0]] * 10
         if s[0] in digits and s[1] in digits:
-            # Woodblock shorthand: 六四 = 64, 四三 = 43
             return digits[s[0]] * 10 + digits[s[1]]
     if len(s) == 3 and s[1] == "十" and s[0] in digits and s[2] in digits:
         return digits[s[0]] * 10 + digits[s[2]]
-    # Mixed OCR like 四13 -> folio 63 / 43
     if re.fullmatch(r"[一二三四五六七八九十]\d{1,2}", s):
-        return 999  # clearly a corrupted folio number
+        return 999
     return None
 
 
-def strip_woodblock_folio_prefix(page: str, page_idx: int, stats: dict) -> str:
-    """
-    Remove woodblock centerfold folio numbers at the start of pages (e.g. '六四末酒調服...',
-    '十一一治石瘧...', '十二又方...', '四13無漿...').
-    Only strips when the leading numeral matches the expected folio range (~page_idx//2)
-    and is NOT part of main text like '一經治', '一方', '一傳治', '三開', '五疸'.
-    """
-    # Never strip recipe/section openers
-    if re.match(r"^(?:一[經经傳传方治法法小肾径仗佈]|三開|五疸|四肢|九阴)", page):
+def strip_woodblock_folio_prefix(
+    page: str,
+    page_idx: int,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
+    if re.match(r"^(?:一[經经傳传方治法小肾径仗佈]|三開|五疸|四肢|九阴)", page):
         return page
 
-    # Mixed CJK+ASCII digit folio error like 四13
     m_mix = re.match(r"^([一二三四五六七八九十]\d{1,2})", page)
     if m_mix:
         stats["headers_footers_removed"] += 1
+        if audit is not None:
+            audit.log(
+                "WOODBLOCK_FOLIO_REMOVE",
+                line_no,
+                page[:20],
+                page[m_mix.end():20 + m_mix.end()],
+                f"Removed corrupted woodblock folio prefix '{m_mix.group(1)}'",
+                original_start=0,
+                original_end=m_mix.end(),
+            )
         return page[m_mix.end():]
 
-    # Check 1-3 char CJK numeral prefix
     m = re.match(r"^([一二三四五六七八九十]{1,3})", page)
     if m:
         num_str = m.group(1)
         val = _cjk_to_int(num_str)
         expected_folio = (page_idx + 1) // 2
         if val is not None and abs(val - expected_folio) <= 4:
-            # Make sure it's not a dosage/count like "三兩" or "十九空心" (19 pills)
             rest = page[m.end():]
             if not re.match(r"^[兩両錢分斤升合碗盞杯盃枚粒片丸個个日次服歲月年]", rest):
                 stats["headers_footers_removed"] += 1
+                if audit is not None:
+                    audit.log(
+                        "WOODBLOCK_FOLIO_REMOVE",
+                        line_no,
+                        page[:20],
+                        rest[:20],
+                        f"Removed woodblock folio prefix '{num_str}' (expected ~{expected_folio})",
+                        original_start=0,
+                        original_end=m.end(),
+                    )
                 return rest
     return page
 
 
-def process_tan_san_nam_duoc(text: str, filename: str) -> tuple[str, dict]:
-    stats = defaultdict(int)
+def replace_unreadable_ocr_with_mask(
+    page: str,
+    stats: dict,
+    audit: AuditLogger | None = None,
+    line_no: int = 0,
+) -> str:
+    """
+    P03 fix: Replace unreadable Bopomofo/Kana OCR characters (e.g. '每服一ㄐ', '每服二ㄔ')
+    with '[MASK]' instead of silently deleting them, and record each original char in audit
+    with review_status='NEEDS_REVIEW' for verification against the woodblock scan.
+    """
+    matches = list(BOPOMOFO_KANA_RE.finditer(page))
+    if not matches:
+        return page
+
+    for m in matches:
+        ch = m.group(0)
+        ctx_before = page[max(0, m.start() - 8):min(len(page), m.end() + 8)]
+        ctx_after = (
+            page[max(0, m.start() - 8):m.start()]
+            + "[MASK]"
+            + page[m.end():min(len(page), m.end() + 8)]
+        )
+        stats["unreadable_ocr_masked"] += 1
+        if audit is not None:
+            audit.log(
+                rule_id="P03_OCR_UNREADABLE_MASK",
+                original_line=line_no,
+                original_start=m.start(),
+                original_end=m.end(),
+                before=ctx_before,
+                after=ctx_after,
+                reason=f"Replaced unreadable OCR char '{ch}' (U+{ord(ch):04X}) with [MASK]; possible measurement unit",
+                review_status="NEEDS_REVIEW",
+            )
+
+    return BOPOMOFO_KANA_RE.sub("[MASK]", page)
+
+
+def process_tan_san_nam_duoc(
+    text: str,
+    filename: str = "",
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    stats: dict = defaultdict(int)
     text = nfc(text)
     raw_lines = text.splitlines()
     stats["input_lines"] = len(raw_lines)
     stats["input_chars"] = len(text)
 
-    non_empty = [l.strip() for l in raw_lines if l.strip()]
+    non_empty = [(i + 1, l.strip()) for i, l in enumerate(raw_lines) if l.strip()]
 
-    # 1. Remove cover-only first page (e.g., "卷捌", "卷玖", "卷拾") and q9 TOC page
-    cleaned_pages = []
-    for idx, p in enumerate(non_empty):
-        # Cover-only title page (2 chars: 卷捌 / 卷玖 / 卷拾)
+    cleaned_pages: list[tuple[int, str]] = []
+    for idx, (line_no, p) in enumerate(non_empty):
         if idx == 0 and re.fullmatch(r"卷[一二三四五六七八九十拾捌玖伍陸]", p):
             stats["front_matter_pages_removed"] += 1
+            if audit is not None:
+                audit.log("FRONT_MATTER_COVER_REMOVE", line_no, p, "", "Removed cover-only volume title page")
             continue
-        # q9 TOC page: starts with "卷九小兒科息驚慢驚..." (list of disease names before "新刊南菓神效十科應治卷...")
         if idx <= 2 and p.startswith("卷九小兒科") and "新刊" not in p:
             stats["front_matter_pages_removed"] += 1
+            if audit is not None:
+                audit.log("TOC_PAGE_REMOVE", line_no, p[:80], "", "Removed q9 disease-list TOC page")
             continue
 
-        # Strip woodblock folio page number at start of page
-        p = strip_woodblock_folio_prefix(p, idx, stats)
-
-        # Clean Bopomofo / Kana OCR garbage characters that were misread from cursive woodblock chars:
-        # In woodblock Nam Duoc Than Hieu, cursive 錢 (tiền/đồng cân) is consistently OCR'd as
-        # Bopomofo/Kana (ㄐ, ㄔ, ㄇ, ㄟ, ㄢ, ㄘ, ㄗ, ㄡ, ㄏ, り) right after numerals (e.g. 每服一ㄐ, 各三ㄇ).
-        # Wait: removing pure garbage Bopomofo/Kana symbols cleans non-CJK OCR noise.
-        # Better yet: only strip stray Bopomofo/Kana if not a valid Han char? Wait - replacing with 錢
-        # could be risky if one was 寸/分, whereas leaving Bopomofo leaves garbage characters!
-        # Let's check: in "每服一ㄐ", "每服二ㄔ", "每服半ㄏ", removing the Bopomofo symbol removes the garbage char.
-        # Wait: let's check requirement: "Sửa ký tự rác và khoảng trắng bất thường" AND
-        # "Giữ tên riêng, niên hiệu, con số và đơn vị đo theo nguồn".
-        # Removing stray Bopomofo/Kana garbage chars [\u3100-\u312f\u3040-\u30ff] fixes OCR garbage without inventing text.
-        p, n = re.subn(r"[\u3100-\u312f\u3040-\u30ff]", "", p)
-        stats["garbage_tokens_cleaned"] += n
-
-        # Normalize whitespace & stray symbols
-        p = normalize_cjk_punct_and_ws(p, stats)
+        p = strip_woodblock_folio_prefix(p, idx, stats, audit=audit, line_no=line_no)
+        # P03 fix: mask unreadable Bopomofo/Kana instead of deleting
+        p = replace_unreadable_ocr_with_mask(p, stats, audit=audit, line_no=line_no)
+        p = normalize_cjk_punct_and_ws(p, stats, audit=audit, line_no=line_no)
         if p:
-            cleaned_pages.append(p)
+            cleaned_pages.append((line_no, p))
 
-    # 2. Deduplicate adjacent identical/overlapping pages
-    cleaned_pages = deduplicate_adjacent_lines(cleaned_pages, stats)
+    cleaned_pages = deduplicate_adjacent_lines(cleaned_pages, stats, audit=audit)  # type: ignore[assignment]
 
-    # 3. Merge pages into continuous prose (woodblock pages have almost no terminal punctuation,
-    #    so every page break splits a sentence/recipe mid-way!).
-    #    Join pages directly, inserting paragraph breaks before major recipe/section starters if the
-    #    previous page ended cleanly, or merging seamlessly when broken mid-sentence.
     merged_text = ""
-    for i, p in enumerate(cleaned_pages):
+    for i, (line_no, p) in enumerate(cleaned_pages):
         if i == 0:
             merged_text = p
         else:
-            # If the new page starts with a new recipe marker ("一經治", "一傳治", "又方", "又經方", "一方")
-            # and previous page ended with a common recipe ending ("效", "愈", "止", "消", "散", "妙", "安", "瘥", "良", "。"),
-            # keep a paragraph break; otherwise merge seamlessly across page break!
             if (
                 re.match(r"^(?:一[經经傳传方治法]|又[經经傳传]?方)", p)
                 and merged_text[-1] in "效愈止消散妙安瘥良平。"
             ):
                 merged_text += "\n\n" + p
             else:
+                if audit is not None:
+                    audit.log(
+                        "WOODBLOCK_PAGE_BREAK_MERGE",
+                        line_no,
+                        f"{merged_text[-15:]} | {p[:15]}",
+                        f"{merged_text[-15:]}{p[:15]}",
+                        f"Merged woodblock page (L{line_no}) across page break",
+                    )
                 merged_text += p
                 stats["page_break_merges"] += 1
 
@@ -943,48 +1538,386 @@ def process_tan_san_nam_duoc(text: str, filename: str) -> tuple[str, dict]:
 
 
 # ---------------------------------------------------------------------------
-# Main runner
+# Sentence Segmentation with 4+4 Unicode Context Logging (P07)
 # ---------------------------------------------------------------------------
 
-def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    report = {}
+_VN_ABBREV_RE = re.compile(
+    r"(?:\b(?:Tp|Tr|Nxb|NXB|Gs|GS|Ts|TS|Bs|BS|Ths|ThS|Mr|Ms|Dr|St|v\.v|etc|đ/c|P|Q|H|X|T)|"
+    r"\b[IVXLCDM]+|"
+    r"(?:^|\s)\d{1,3}|"
+    r"(?:^|\s)[A-Za-zÀ-ỹĐđ])\.$"
+)
 
-    files = sorted(f for f in os.listdir(INPUT_DIR) if f.endswith(".txt"))
-    print(f"Found {len(files)} text files in {INPUT_DIR}")
+
+def segment_sentences(
+    text: str,
+    lang: str,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Segment cleaned text into sentences and record 4+4 Unicode context at every split boundary (P07).
+    Returns:
+      - sentences: list of {"sent_id": int, "start": int, "end": int, "text": str}
+      - boundaries: list of {"split_id": int, "offset": int, "prev_4": str, "next_4": str, "reason": str}
+    """
+    sentences: list[dict] = []
+    boundaries: list[dict] = []
+    n = len(text)
+    if n == 0:
+        return sentences, boundaries
+
+    split_points: list[tuple[int, str]] = []  # (offset_after_prev_sent, reason)
+
+    if lang == "cjk":
+        cjk_end = set("。！？；")
+        closers = set("”’』」）】》\"'")
+        i = 0
+        while i < n:
+            ch = text[i]
+            if ch == "\n":
+                # Paragraph break
+                j = i
+                while j < n and text[j] in "\r\n":
+                    j += 1
+                split_points.append((i, "PARAGRAPH_BREAK"))
+                i = j
+                continue
+            if ch in cjk_end:
+                end_pos = i + 1
+                while end_pos < n and text[end_pos] in closers:
+                    end_pos += 1
+                # Only record split if there is more non-whitespace text ahead
+                if end_pos < n and text[end_pos] not in "\r\n":
+                    split_points.append((end_pos, f"CJK_TERMINAL_{ch}"))
+                i = end_pos
+                continue
+            i += 1
+    else:
+        # Vietnamese sentence segmentation
+        closers = set("\"'”’)]")
+        i = 0
+        while i < n:
+            ch = text[i]
+            if ch == "\n":
+                j = i
+                while j < n and text[j] in "\r\n":
+                    j += 1
+                split_points.append((i, "LINE_OR_PARAGRAPH_BREAK"))
+                i = j
+                continue
+            if ch in ".?!;":
+                # Protect decimals/version numbers: digit.digit
+                if ch == "." and i > 0 and i + 1 < n and text[i - 1].isdigit() and text[i + 1].isdigit():
+                    i += 1
+                    continue
+                # Protect ellipsis (...)
+                if ch == "." and ((i + 1 < n and text[i + 1] == ".") or (i > 0 and text[i - 1] == ".")):
+                    i += 1
+                    continue
+                # Protect abbreviations & numbered list markers like "1.", "I.", "Tp."
+                if ch == ".":
+                    prefix = text[max(0, i - 12):i + 1]
+                    if _VN_ABBREV_RE.search(prefix):
+                        i += 1
+                        continue
+                end_pos = i + 1
+                while end_pos < n and text[end_pos] in closers:
+                    end_pos += 1
+                # Require whitespace before next sentence (avoid breaking URLs/abbrevs)
+                if end_pos < n and text[end_pos] in " \t":
+                    next_non_ws = end_pos
+                    while next_non_ws < n and text[next_non_ws] in " \t":
+                        next_non_ws += 1
+                    if next_non_ws < n and text[next_non_ws] not in "\r\n":
+                        # For ';', only split if followed by a substantial clause (>= 8 chars)
+                        if ch != ";" or (n - next_non_ws >= 8):
+                            split_points.append((end_pos, f"VN_TERMINAL_{ch}"))
+                i = end_pos
+                continue
+            i += 1
+
+    # Build sentences & 4+4 boundary records
+    prev_start = 0
+    sent_id = 1
+    split_id = 1
+    for offset, reason in split_points:
+        raw_chunk = text[prev_start:offset]
+        stripped = raw_chunk.strip()
+        if stripped:
+            lead_ws = len(raw_chunk) - len(raw_chunk.lstrip())
+            s_start = prev_start + lead_ws
+            s_end = s_start + len(stripped)
+            sentences.append({
+                "sent_id": sent_id,
+                "start": s_start,
+                "end": s_end,
+                "text": stripped,
+            })
+            sent_id += 1
+
+            # Compute 4 Unicode characters immediately before & after split (skipping newlines/spaces at boundary)
+            left_clean = text[:offset].rstrip(" \t\r\n")
+            right_clean = text[offset:].lstrip(" \t\r\n")
+            if left_clean and right_clean:
+                boundaries.append({
+                    "split_id": split_id,
+                    "offset": offset,
+                    "prev_4": left_clean[-4:],
+                    "next_4": right_clean[:4],
+                    "reason": reason,
+                })
+                split_id += 1
+        prev_start = offset
+
+    # Final trailing sentence
+    tail = text[prev_start:]
+    stripped_tail = tail.strip()
+    if stripped_tail:
+        lead_ws = len(tail) - len(tail.lstrip())
+        s_start = prev_start + lead_ws
+        sentences.append({
+            "sent_id": sent_id,
+            "start": s_start,
+            "end": s_start + len(stripped_tail),
+            "text": stripped_tail,
+        })
+
+    return sentences, boundaries
+
+
+# ---------------------------------------------------------------------------
+# Independent Output Verification (P11)
+# ---------------------------------------------------------------------------
+
+def verify_output(raw: str, refined: str, lang: str, filename: str) -> dict:
+    """Run independent verification checks comparing refined output against raw input."""
+    checks: dict = {
+        "file": filename,
+        "lang": lang,
+        "changed": refined != raw,
+        "retention_ratio": round(len(refined) / max(1, len(raw)), 4),
+        "issues": [],
+    }
+    if lang == "vi":
+        han_left = len(HAN_NOM_RE.findall(refined))
+        checks["han_nom_remaining"] = han_left
+        if han_left > 0:
+            checks["issues"].append(f"Found {han_left} remaining Han-Nom spans in VN file")
+    else:
+        vn_left = len(VN_DIAC_WORD_RE.findall(refined))
+        checks["vn_words_remaining"] = vn_left
+        if vn_left > 0:
+            checks["issues"].append(f"Found {vn_left} remaining VN diacritic words in CJK file")
+
+    bopo_raw = len(BOPOMOFO_KANA_RE.findall(nfc(raw)))
+    bopo_ref = len(BOPOMOFO_KANA_RE.findall(refined))
+    mask_count = refined.count("[MASK]")
+    checks["bopomofo_kana_raw"] = bopo_raw
+    checks["bopomofo_kana_remaining"] = bopo_ref
+    checks["mask_tokens"] = mask_count
+    if bopo_ref > 0:
+        checks["issues"].append(f"Found {bopo_ref} unmasked Bopomofo/Kana chars")
+    if bopo_raw > 0 and mask_count < bopo_raw:
+        checks["issues"].append(f"Expected >= {bopo_raw} [MASK] tokens, got {mask_count}")
+
+    latex_left = len(re.findall(r"[\$\\{}^]", refined))
+    checks["latex_symbols_remaining"] = latex_left
+    if latex_left > 0:
+        checks["issues"].append(f"Found {latex_left} remaining LaTeX/garbage symbols")
+
+    urls_left = len(re.findall(r"vnras\.com|bbs\.zhong-yao\.net", refined, re.I))
+    checks["watermark_urls_remaining"] = urls_left
+    if urls_left > 0:
+        checks["issues"].append(f"Found {urls_left} remaining watermark URLs")
+
+    checks["status"] = "PASS" if not checks["issues"] else "WARN"
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# Dispatch & Importable Pipeline Runner (P11)
+# ---------------------------------------------------------------------------
+
+def detect_file_lang(fname: str) -> str:
+    if fname in ("nam-duoc-than-hieu-pdf.txt", "nam_khoa_nu_khoa.txt"):
+        return "vi"
+    return "cjk"
+
+
+def process_file_content(
+    fname: str,
+    raw: str,
+    audit: AuditLogger | None = None,
+) -> tuple[str, dict]:
+    if fname == "nam-duoc-than-hieu-pdf.txt":
+        return process_nam_duoc_than_hieu(raw, audit=audit)
+    elif fname == "nam_khoa_nu_khoa.txt":
+        return process_nam_khoa_nu_khoa(raw, audit=audit)
+    elif fname == "Pho_Thanh_Chu_Nu_Khoa.txt":
+        return process_pho_thanh_chu(raw, audit=audit)
+    elif fname.startswith("Linh khởi điểm"):
+        return process_linh_khoi_diem(raw, audit=audit)
+    elif fname.startswith("phuong-te-hoc"):
+        return process_phuong_te_hoc(raw, audit=audit)
+    elif fname.startswith("Tân_san_Nam_dược"):
+        return process_tan_san_nam_duoc(raw, fname, audit=audit)
+    else:
+        raise ValueError(f"Unhandled file: {fname}")
+
+
+def run_pipeline(
+    input_dir: str | Path = DEFAULT_INPUT_DIR,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIR,
+    report_dir: str | Path = DEFAULT_REPORT_DIR,
+    sentences_dir: str | Path | None = DEFAULT_SENTENCES_DIR,
+    only_write_modified: bool = True,
+) -> dict:
+    """
+    Run the full cleaning, auditing, verification, and sentence segmentation pipeline.
+    Importable for local or Kaggle execution (P11).
+    """
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    report_path = Path(report_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    report_path.mkdir(parents=True, exist_ok=True)
+    if sentences_dir is not None:
+        Path(sentences_dir).mkdir(parents=True, exist_ok=True)
+
+    files = sorted(f for f in os.listdir(input_path) if f.endswith(".txt"))
+    report: dict = {}
+    verification: dict = {}
+    all_audit_records: list[dict] = []
+    all_review_records: list[dict] = []
+    seg_log_lines: list[str] = []
+    written_files: list[str] = []
+    skipped_files: list[str] = []
 
     for fname in files:
-        in_path = os.path.join(INPUT_DIR, fname)
-        out_path = os.path.join(OUTPUT_DIR, fname)
+        in_file = input_path / fname
+        out_file = output_path / fname
+        raw = in_file.read_text(encoding="utf-8")
 
-        with open(in_path, "r", encoding="utf-8") as f:
-            raw = f.read()
+        audit = AuditLogger(filename=fname)
+        refined, stats = process_file_content(fname, raw, audit=audit)
+        lang = detect_file_lang(fname)
 
-        if fname == "nam-duoc-than-hieu-pdf.txt":
-            refined, stats = process_nam_duoc_than_hieu(raw)
-        elif fname == "nam_khoa_nu_khoa.txt":
-            refined, stats = process_nam_khoa_nu_khoa(raw)
-        elif fname == "Pho_Thanh_Chu_Nu_Khoa.txt":
-            refined, stats = process_pho_thanh_chu(raw)
-        elif fname.startswith("Linh khởi điểm"):
-            refined, stats = process_linh_khoi_diem(raw)
-        elif fname.startswith("phuong-te-hoc"):
-            refined, stats = process_phuong_te_hoc(raw)
-        elif fname.startswith("Tân_san_Nam_dược"):
-            refined, stats = process_tan_san_nam_duoc(raw, fname)
+        # P11: Only write files that actually changed
+        changed = refined != raw
+        stats["file_modified"] = changed
+        stats["audit_records"] = len(audit.records)
+        stats["review_items"] = len(audit.review_items())
+
+        if changed or not only_write_modified:
+            out_file.write_text(refined, encoding="utf-8", newline="\n")
+            written_files.append(fname)
         else:
-            raise ValueError(f"Unhandled file: {fname}")
+            skipped_files.append(fname)
 
-        with open(out_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(refined)
+        # Independent verification
+        ver = verify_output(raw, refined, lang, fname)
+        verification[fname] = ver
 
+        # P07: Sentence segmentation + 4+4 context log
+        if sentences_dir is not None:
+            sents, bounds = segment_sentences(refined, lang)
+            stats["sentences_count"] = len(sents)
+            stats["split_boundaries_count"] = len(bounds)
+            stem = Path(fname).stem
+            sent_txt_path = Path(sentences_dir) / f"{stem}_sentences.txt"
+            sent_jsonl_path = Path(sentences_dir) / f"{stem}_sentences.jsonl"
+            sent_txt_path.write_text(
+                "\n".join(s["text"] for s in sents) + ("\n" if sents else ""),
+                encoding="utf-8",
+                newline="\n",
+            )
+            with sent_jsonl_path.open("w", encoding="utf-8", newline="\n") as jf:
+                for s in sents:
+                    jf.write(json.dumps(s, ensure_ascii=False) + "\n")
+
+            seg_log_lines.append(f"=== {fname} ({lang}, {len(sents)} sentences, {len(bounds)} splits) ===")
+            for b in bounds:
+                seg_log_lines.append(
+                    f"  #{b['split_id']} offset={b['offset']} [{b['reason']}] "
+                    f"prev4={b['prev_4']!r} | next4={b['next_4']!r}"
+                )
+
+        all_audit_records.extend(audit.to_dicts())
+        all_review_records.extend(asdict(r) for r in audit.review_items())
         report[fname] = stats
-        print(f"[OK] {fname}: {stats['input_chars']:,} -> {stats['output_chars']:,} chars | {stats['input_lines']} -> {stats['output_lines']} lines")
 
-    summary_path = os.path.join(BASE_DIR, "refinement_stats.json")
-    with open(summary_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-    print(f"\nSaved stats to {summary_path}")
+    # Write JSON stats + verification
+    (report_path / "refinement_stats.json").write_text(
+        json.dumps(
+            {
+                "files": report,
+                "verification": verification,
+                "written_files": written_files,
+                "skipped_unchanged_files": skipped_files,
+                "total_audit_records": len(all_audit_records),
+                "total_review_items": len(all_review_records),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
+
+    # Write per-change audit log (JSONL) & review queue (JSONL)
+    with (report_path / "audit_changes.jsonl").open("w", encoding="utf-8", newline="\n") as af:
+        for rec in all_audit_records:
+            af.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    with (report_path / "review_queue.jsonl").open("w", encoding="utf-8", newline="\n") as rf:
+        for rec in all_review_records:
+            rf.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    # Write segmentation 4+4 boundary log
+    if sentences_dir is not None:
+        (report_path / "segmentation_changes.txt").write_text(
+            "\n".join(seg_log_lines) + ("\n" if seg_log_lines else ""),
+            encoding="utf-8",
+            newline="\n",
+        )
+
+    return {
+        "files": report,
+        "verification": verification,
+        "written_files": written_files,
+        "skipped_unchanged_files": skipped_files,
+        "total_audit_records": len(all_audit_records),
+        "total_review_items": len(all_review_records),
+    }
+
+
+def main(argv: list[str] | None = None):
+    parser = argparse.ArgumentParser(description="Clean & segment Han-Nom / Vietnamese TCM texts.")
+    parser.add_argument("--input-dir", default=str(DEFAULT_INPUT_DIR), help="Input folder containing raw .txt files")
+    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output folder for cleaned .txt files")
+    parser.add_argument("--report-dir", default=str(DEFAULT_REPORT_DIR), help="Output folder for stats & audit logs")
+    parser.add_argument("--sentences-dir", default=str(DEFAULT_SENTENCES_DIR), help="Output folder for segmented sentences")
+    parser.add_argument("--no-sentences", action="store_true", help="Disable sentence segmentation output")
+    parser.add_argument("--write-unchanged", action="store_true", help="Write output even if file is unchanged")
+    args = parser.parse_args(argv)
+
+    res = run_pipeline(
+        input_dir=args.input_dir,
+        output_dir=args.output_dir,
+        report_dir=args.report_dir,
+        sentences_dir=None if args.no_sentences else args.sentences_dir,
+        only_write_modified=not args.write_unchanged,
+    )
+    for fname, st in res["files"].items():
+        ver = res["verification"][fname]["status"]
+        print(
+            f"[{ver}] {fname}: {st['input_chars']:,} -> {st['output_chars']:,} chars | "
+            f"{st['input_lines']} -> {st['output_lines']} lines | "
+            f"audit={st['audit_records']}, review={st['review_items']}"
+        )
+    print(
+        f"\nWritten: {len(res['written_files'])}, Skipped unchanged: {len(res['skipped_unchanged_files'])}, "
+        f"Total audit records: {res['total_audit_records']:,}, Review items: {res['total_review_items']}"
+    )
 
 
 if __name__ == "__main__":
