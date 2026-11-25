@@ -1,19 +1,27 @@
-"""CLI entry point for running Kim Han-Nom OCR API on a folder of PDFs."""
+"""CLI entry point for running Kim Han-Nom Sentence Segmentation API on a folder of text files."""
 from __future__ import annotations
 
 import argparse
 import os
 from pathlib import Path
 
-from ocr_api import APIConfig, HanNomOCR
-from ocr_api.api_client import DEFAULT_BASE_URL, DEFAULT_USER_AGENT
+from segmentation_api import HanNomSegmenter, SegmentationAPIConfig
+from segmentation_api.api_client import (
+    DEFAULT_BASE_URL,
+    DEFAULT_USER_AGENT,
+    VALID_ENDPOINTS,
+    VALID_GENRES,
+    VALID_PUNCTUATION_GROUPS,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Detect PDFs in a folder and OCR each page sequentially using the "
-            "Kim Han-Nom API (https://kimhannom.fit.hcmus.edu.vn/)."
+            "Discover all text files in a folder, divide each file into non-empty line chunks "
+            "(under the 10,000-token limit), send each chunk sequentially to the Kim Han-Nom API "
+            "(https://kimhannom.clc.hcmus.edu.vn/), and write concatenated segmented sentences "
+            "to the output directory."
         )
     )
 
@@ -22,24 +30,24 @@ def parse_args() -> argparse.Namespace:
         "--input-dir",
         type=str,
         default=".",
-        help="Directory (or single PDF file) containing input PDFs.",
+        help="Directory (or single text file) containing input text files.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="./ocr_api_raw",
-        help="Directory for incremental JSONL OCR results.",
+        default="./seg_api_output",
+        help="Directory where received segmented text files will be written.",
     )
     parser.add_argument(
-        "--txt-dir",
+        "--extensions",
         type=str,
-        default="./ocr_api_txt",
-        help="Directory for exported plain-text files.",
+        default=".txt",
+        help="Comma-separated file extensions to include (default: '.txt').",
     )
     parser.add_argument(
         "--no-recursive",
         action="store_true",
-        help="Only search the top-level input directory for PDFs.",
+        help="Only search the top-level input directory for text files.",
     )
 
     # API authentication & endpoint
@@ -56,7 +64,7 @@ def parse_args() -> argparse.Namespace:
         "--base-url",
         type=str,
         default=DEFAULT_BASE_URL,
-        help="API base URL.",
+        help="API base URL (default: https://kimhannom.clc.hcmus.edu.vn).",
     )
     parser.add_argument(
         "--user-agent",
@@ -65,74 +73,33 @@ def parse_args() -> argparse.Namespace:
         help="Custom User-Agent header (must not start with 'python-requests').",
     )
 
-    # OCR mode & parameters
+    # Segmentation API parameters
     parser.add_argument(
-        "--mode",
+        "--endpoint",
         type=str,
-        default="hannom",
-        choices=["hannom", "viet"],
-        help="OCR endpoint mode: 'hannom' (image-upload + image-ocr) or 'viet' (viet-ocr).",
+        default="separate-sentences",
+        choices=list(VALID_ENDPOINTS),
+        help=(
+            "Kim Han-Nom API endpoint: 'separate-sentences' (default: punctuation + sentence splitting) "
+            "or 'sentence-punctuation' (punctuation only)."
+        ),
     )
     parser.add_argument(
-        "--ocr-id",
-        type=int,
-        default=1,
-        choices=[1, 2, 3, 4],
-        help="Han-Nom OCR type: 1=normal vertical, 2=administrative, 3=scene, 4=normal horizontal.",
-    )
-    parser.add_argument(
-        "--lang-type",
-        type=int,
-        default=1,
-        choices=[0, 1, 2],
-        help="Language type: 0=unknown, 1=Han, 2=Nom.",
-    )
-    parser.add_argument(
-        "--reading-direction",
-        type=int,
-        default=1,
-        choices=[1, 2],
-        help="Reading direction: 1=vertical (default), 2=horizontal.",
-    )
-    parser.add_argument(
-        "--epitaph",
-        type=int,
-        default=0,
-        choices=[0, 1],
-        help="Document style: 0=normal document, 1=epitaph (van bia).",
-    )
-    parser.add_argument(
-        "--tag",
+        "--genre",
         type=str,
-        default=None,
-        help="Optional specialized model_id tag assigned by admin.",
+        default="medical",
+        choices=list(VALID_GENRES),
+        help="Document genre for the API model (default: 'medical' for traditional medicine).",
     )
     parser.add_argument(
-        "--auto-classify",
-        action="store_true",
-        help="Call /structure-classification before /image-ocr to auto-detect ocr_id/lang_type/direction (+1 req/page).",
-    )
-
-    # Rendering & page selection
-    parser.add_argument(
-        "--pages",
+        "--punctuation-group",
         type=str,
-        default="",
-        help="1-based pages to process, e.g. '1-5,10'. Empty string means all pages.",
-    )
-    parser.add_argument("--dpi", type=int, default=200, help="PDF render DPI.")
-    parser.add_argument(
-        "--max-side",
-        type=int,
-        default=1600,
-        help="Resize rendered page so longest side <= max-side (0 disables resizing).",
-    )
-    parser.add_argument(
-        "--image-format",
-        type=str,
-        default="JPEG",
-        choices=["JPEG", "PNG"],
-        help="Image format sent to the API.",
+        default="all",
+        choices=list(VALID_PUNCTUATION_GROUPS),
+        help=(
+            "Punctuation marks to retain: 'all' (default: 。？！，：、；), "
+            "'fullstop' (。？！), or 'other_punctuation' (，：、；)."
+        ),
     )
 
     # Rate-limiting & execution controls
@@ -143,19 +110,26 @@ def parse_args() -> argparse.Namespace:
         choices=["limited", "unlimited"],
         help=(
             "API call limit mode: 'limited' restricts calls according to configured limits; "
-            "'unlimited' disables local request limits (default: limited)."
+            "'unlimited' calls the API continuously and sequentially without caring about limits "
+            "(default: limited)."
         ),
     )
     parser.add_argument(
         "--unlimited",
         action="store_true",
-        help="Shorthand for --rate-limit-mode unlimited (allow unlimited API calls).",
+        help=(
+            "Call the API continuously and sequentially without caring about rate limits "
+            "(disables all local caps, error-quota stops, and default delay)."
+        ),
     )
     parser.add_argument(
         "--delay",
         type=float,
-        default=3.0,
-        help="Delay in seconds between consecutive API requests (default: 3.0; 0 disables).",
+        default=None,
+        help=(
+            "Delay in seconds between consecutive API requests "
+            "(default: 0.0 in --unlimited mode, 3.0 in limited mode)."
+        ),
     )
     parser.add_argument(
         "--max-requests-per-minute",
@@ -196,8 +170,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=60.0,
-        help="HTTP request timeout in seconds.",
+        default=300.0,
+        help="HTTP request timeout in seconds (default: 300.0).",
     )
     parser.add_argument(
         "--max-retries",
@@ -209,22 +183,22 @@ def parse_args() -> argparse.Namespace:
         "--max-consecutive-errors",
         type=int,
         default=5,
-        help="Stop early after N consecutive page errors to preserve API quota (0 disables).",
+        help="Stop early after N consecutive errors in limited mode (0 disables; ignored in unlimited mode).",
     )
     parser.add_argument(
         "--no-resume",
         action="store_true",
-        help="Re-process pages even if already saved in output-dir.",
+        help="Re-process files even if an output file already exists in output-dir.",
     )
     parser.add_argument(
         "--no-rate-limit-guard",
         action="store_true",
-        help="Deprecated alias for --unlimited (disable local request limits).",
+        help="Deprecated alias for --unlimited.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Discover PDFs and estimate API requests without calling the API.",
+        help="Discover text files and list them without calling the API.",
     )
 
     return parser.parse_args()
@@ -239,17 +213,15 @@ def main() -> None:
         else "limited"
     )
 
-    config = APIConfig(
+    extensions = [ext.strip() for ext in args.extensions.split(",") if ext.strip()]
+
+    config = SegmentationAPIConfig(
         base_url=args.base_url,
         token=args.token,
         user_agent=args.user_agent,
-        mode=args.mode,
-        ocr_id=args.ocr_id,
-        lang_type=args.lang_type,
-        reading_direction=args.reading_direction,
-        epitaph=args.epitaph,
-        tag=args.tag,
-        auto_classify=args.auto_classify,
+        endpoint=args.endpoint,
+        genre=args.genre,
+        punctuation_group=args.punctuation_group,
         rate_limit_mode=rate_limit_mode,
         request_delay=args.delay,
         max_requests_per_minute=args.max_requests_per_minute,
@@ -260,32 +232,36 @@ def main() -> None:
         max_consecutive_errors=args.max_consecutive_errors,
         timeout=args.timeout,
         max_retries=args.max_retries,
-        dpi=args.dpi,
-        max_side=args.max_side,
-        image_format=args.image_format,
     )
 
-    with HanNomOCR(config) as ocr:
-        books = ocr.discover(
+    with HanNomSegmenter(config) as segmenter:
+        docs = segmenter.discover(
             args.input_dir,
-            pages=args.pages,
+            extensions=extensions,
             recursive=not args.no_recursive,
         )
-        print(f"Discovered {len(books)} PDF document(s) in {Path(args.input_dir).resolve()}:")
-        total_pages = 0
-        for name, (src, selected) in books.items():
-            total_pages += len(selected)
-            print(f"  - {name}: {len(selected)} page(s) ({src})")
+        print(
+            f"Discovered {len(docs)} text file(s) in {Path(args.input_dir).resolve()}:"
+        )
+        total_chunks = 0
+        for name, src in docs.items():
+            raw_text = Path(src).read_text(encoding="utf-8-sig", errors="replace")
+            chunks = segmenter.split_chunks(raw_text)
+            total_chunks += len(chunks)
+            max_chunk_len = max((len(c) for c in chunks), default=0)
+            print(
+                f"  - {name}: {len(raw_text)} char(s), {len(chunks)} line chunk(s) "
+                f"(max chunk: {max_chunk_len} chars) ({src})"
+            )
 
-        if not books:
-            print("No PDF files found.")
+        if not docs:
+            print("No text files found.")
             return
 
-        reqs_per_page = 1 if args.mode == "viet" else (3 if args.auto_classify else 2)
-        est_requests = total_pages * reqs_per_page
         print(
-            f"Total selected pages: {total_pages} "
-            f"(~{est_requests} API request(s) at {reqs_per_page} req/page). "
+            f"Total files: {len(docs)} ({total_chunks} line-chunk API request(s)). "
+            f"Endpoint: {config.endpoint}, genre: {config.genre}, "
+            f"punctuation: {config.punctuation_group}, "
             f"API call policy: {config.rate_limit_summary()}, delay={config.request_delay}s."
         )
 
@@ -299,21 +275,16 @@ def main() -> None:
                 "Authenticated endpoints may reject requests without a Bearer token."
             )
 
-        Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-        Path(args.txt_dir).mkdir(parents=True, exist_ok=True)
-
-        ocr.run(
-            books,
+        written = segmenter.run(
+            docs,
             output_dir=args.output_dir,
             resume=not args.no_resume,
             budget_hours=args.budget_hours,
         )
-        ocr.export_txt(
-            books,
-            output_dir=args.output_dir,
-            txt_dir=args.txt_dir,
+        print(
+            f"Completed: {len(written)}/{len(docs)} file(s) written to "
+            f"{Path(args.output_dir).resolve()}."
         )
-        print("OCR API processing and text export completed.")
 
 
 if __name__ == "__main__":
