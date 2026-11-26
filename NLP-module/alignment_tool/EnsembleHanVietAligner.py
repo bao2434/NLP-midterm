@@ -49,6 +49,255 @@ def _format_model_proposals(proposals: list[dict[str, Any]]) -> str:
     return "; ".join(parts)
 
 
+def split_parallel_texts_by_lines(
+    han_text: str,
+    vi_text: str,
+    max_chars: int = 5000,
+) -> list[tuple[str, str]]:
+    """Split a (han, vi) text pair into smaller pairs at newline boundaries.
+
+    Guarantees:
+    - Cuts only at line boundaries (never mid-line).
+    - Every returned pair has len(han_part) + len(vi_part) <= max_chars
+      (unless a single Han line + a single Vi line alone already exceed max_chars,
+      in which case lines are kept intact rather than cut mid-line).
+    - Every returned pair is non-empty on both sides.
+    """
+    if max_chars < 1:
+        raise ValueError("max_chars must be >= 1")
+
+    han_lines = [line for line in han_text.replace("\r\n", "\n").replace("\r", "\n").splitlines() if line.strip()]
+    vi_lines = [line for line in vi_text.replace("\r\n", "\n").replace("\r", "\n").splitlines() if line.strip()]
+    if not han_lines or not vi_lines:
+        raise ValueError("Han or Vietnamese text is empty after stripping blank lines")
+
+    han_joined = "\n".join(han_lines)
+    vi_joined = "\n".join(vi_lines)
+    if len(han_joined) + len(vi_joined) <= max_chars:
+        return [(han_joined, vi_joined)]
+
+    parts: list[tuple[str, str]] = []
+
+    # Case 1: Same line count -> lockstep line-by-line grouping.
+    if len(han_lines) == len(vi_lines):
+        cur_h: list[str] = []
+        cur_v: list[str] = []
+        cur_h_len = 0
+        cur_v_len = 0
+        for hl, vl in zip(han_lines, vi_lines):
+            add_h = (1 if cur_h else 0) + len(hl)
+            add_v = (1 if cur_v else 0) + len(vl)
+            if cur_h and (cur_h_len + add_h + cur_v_len + add_v > max_chars):
+                parts.append(("\n".join(cur_h), "\n".join(cur_v)))
+                cur_h, cur_v = [hl], [vl]
+                cur_h_len, cur_v_len = len(hl), len(vl)
+            else:
+                cur_h.append(hl)
+                cur_v.append(vl)
+                cur_h_len += add_h
+                cur_v_len += add_v
+        if cur_h or cur_v:
+            parts.append(("\n".join(cur_h), "\n".join(cur_v)))
+        return parts
+
+    # Case 2: Different line counts -> advance proportionally by cumulative char progress,
+    # cutting strictly at newline boundaries and keeping both sides non-empty per part.
+    nh, nv = len(han_lines), len(vi_lines)
+    han_total = sum(len(line) + 1 for line in han_lines)
+    vi_total = sum(len(line) + 1 for line in vi_lines)
+    han_cum = [0.0]
+    for line in han_lines:
+        han_cum.append(han_cum[-1] + (len(line) + 1) / han_total)
+    vi_cum = [0.0]
+    for line in vi_lines:
+        vi_cum.append(vi_cum[-1] + (len(line) + 1) / vi_total)
+
+    hi = vi_i = 0
+    while hi < nh or vi_i < nv:
+        cur_h = []
+        cur_v = []
+        cur_h_len = 0
+        cur_v_len = 0
+
+        # Ensure at least one line from each side that still has remaining lines.
+        if hi < nh:
+            cur_h.append(han_lines[hi])
+            cur_h_len = len(han_lines[hi])
+            hi += 1
+        if vi_i < nv:
+            cur_v.append(vi_lines[vi_i])
+            cur_v_len = len(vi_lines[vi_i])
+            vi_i += 1
+
+        while hi < nh or vi_i < nv:
+            # Remaining full lengths if we were to finish both sides in this chunk.
+            rem_h_len = sum(len(line) + 1 for line in han_lines[hi:]) if hi < nh else 0
+            rem_v_len = sum(len(line) + 1 for line in vi_lines[vi_i:]) if vi_i < nv else 0
+            if cur_h_len + rem_h_len + cur_v_len + rem_v_len <= max_chars:
+                if hi < nh:
+                    cur_h.extend(han_lines[hi:])
+                    cur_h_len += rem_h_len
+                    hi = nh
+                if vi_i < nv:
+                    cur_v.extend(vi_lines[vi_i:])
+                    cur_v_len += rem_v_len
+                    vi_i = nv
+                break
+
+            # Candidate sides that still have lines; avoid consuming the very last line
+            # of one side while the other side still won't fit in the current chunk.
+            can_h = hi < nh and not (hi == nh - 1 and vi_i < nv)
+            can_v = vi_i < nv and not (vi_i == nv - 1 and hi < nh)
+
+            candidates: list[str] = []
+            if can_h and can_v:
+                candidates = ["han", "vi"] if han_cum[hi] <= vi_cum[vi_i] else ["vi", "han"]
+            elif can_h:
+                candidates = ["han"]
+            elif can_v:
+                candidates = ["vi"]
+            else:
+                break
+
+            added = False
+            for side in candidates:
+                if side == "han":
+                    add = (1 if cur_h else 0) + len(han_lines[hi])
+                    if cur_h_len + add + cur_v_len <= max_chars:
+                        cur_h.append(han_lines[hi])
+                        cur_h_len += add
+                        hi += 1
+                        added = True
+                        break
+                else:
+                    add = (1 if cur_v else 0) + len(vi_lines[vi_i])
+                    if cur_h_len + cur_v_len + add <= max_chars:
+                        cur_v.append(vi_lines[vi_i])
+                        cur_v_len += add
+                        vi_i += 1
+                        added = True
+                        break
+            if not added:
+                break
+
+        parts.append(("\n".join(cur_h), "\n".join(cur_v)))
+
+    return parts
+
+
+def write_parallel_parts(
+    han_text: str,
+    vi_text: str,
+    parts_dir: str | Path,
+    *,
+    stem: str = "part",
+    max_chars: int = 5000,
+) -> list[tuple[Path, Path]]:
+    """Split a (han, vi) text pair at newline boundaries and write part .txt files."""
+    parts_dir = Path(parts_dir)
+    parts_dir.mkdir(parents=True, exist_ok=True)
+    # Remove stale part files from previous runs with a different split count.
+    for old in parts_dir.glob(f"{stem}_*_part_*.txt"):
+        if old.is_file():
+            old.unlink()
+
+    pairs = split_parallel_texts_by_lines(han_text, vi_text, max_chars=max_chars)
+    written: list[tuple[Path, Path]] = []
+    for idx, (han_part, vi_part) in enumerate(pairs, start=1):
+        h_path = parts_dir / f"{stem}_han_part_{idx:03d}.txt"
+        v_path = parts_dir / f"{stem}_vi_part_{idx:03d}.txt"
+        h_path.write_text(han_part, encoding="utf-8")
+        v_path.write_text(vi_part, encoding="utf-8")
+        written.append((h_path, v_path))
+    return written
+
+
+def write_alignment_outputs(
+    out_dir: str | Path,
+    output_rows: list[dict[str, Any]],
+    disagreements: list[dict[str, Any]],
+    *,
+    all_ok: bool,
+    output_name: str | None = None,
+) -> tuple[Path, Path, Path]:
+    """Write TSV, XLSX (DONG_HANG), and note XLSX (NOTES + DISAGREEMENTS) to out_dir."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    base_stem = output_name if output_name else "nu_khoa_parallel"
+    stem = base_stem if all_ok else f"{base_stem}.PARTIAL"
+    tsv_path = out_dir / (stem + ".tsv")
+    xlsx_path = out_dir / (stem + ".xlsx")
+
+    old_stem = f"{base_stem}.PARTIAL" if all_ok else base_stem
+    for extension in (".tsv", ".xlsx"):
+        old = out_dir / (old_stem + extension)
+        if old.exists():
+            old.unlink()
+
+    with tsv_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f, delimiter="\t", lineterminator="\n")
+        for row in output_rows:
+            writer.writerow([_plain(row["han"]), _plain(row["viet"])])
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = "DONG_HANG"
+    sheet.append(["Hán", "Việt"])
+    for row in output_rows:
+        sheet.append([_plain(row["han"]), _plain(row["viet"])])
+    sheet.column_dimensions["A"].width = 65
+    sheet.column_dimensions["B"].width = 85
+    wb.save(xlsx_path)
+
+    notes_path = out_dir / (f"{output_name}_note.xlsx" if output_name else "notes.xlsx")
+    notes = Workbook()
+    notes_sheet = notes.active
+    notes_sheet.title = "NOTES"
+    notes_sheet.append(["Tên tác phẩm", "Câu Hán", "Câu Việt", "Lỗi (mô tả ngắn gọn)", "Chỉnh sửa (ghi chú đề xuất)"])
+    notes_sheet.column_dimensions["A"].width = 32
+    notes_sheet.column_dimensions["B"].width = 70
+    notes_sheet.column_dimensions["C"].width = 70
+    notes_sheet.column_dimensions["D"].width = 55
+    notes_sheet.column_dimensions["E"].width = 85
+
+    disagree_sheet = notes.create_sheet(title="DISAGREEMENTS")
+    disagree_sheet.append(["ID", "Hán IDs", "Việt IDs", "Câu Hán", "Câu Việt", *METHODS])
+    disagree_sheet.column_dimensions["A"].width = 16
+    disagree_sheet.column_dimensions["B"].width = 14
+    disagree_sheet.column_dimensions["C"].width = 14
+    disagree_sheet.column_dimensions["D"].width = 55
+    disagree_sheet.column_dimensions["E"].width = 55
+    disagree_sheet.column_dimensions["F"].width = 65
+    disagree_sheet.column_dimensions["G"].width = 65
+    disagree_sheet.column_dimensions["H"].width = 65
+
+    for item in disagreements:
+        part_prefix = f"Part {item['part']} | " if item.get("part") is not None else ""
+        model_summary = "\n".join(
+            f"{method}: {item['proposals_text'][method]}" for method in METHODS
+        )
+        notes_sheet.append([
+            item["id"],
+            item["han"],
+            item["viet"],
+            f"[{item['id']}] {part_prefix}3-way disagreement (H={item['h_ids']}, V={item['v_ids']})",
+            model_summary,
+        ])
+        disagree_sheet.append([
+            item["id"],
+            ",".join(str(i) for i in item["h_ids"]),
+            ",".join(str(j) for j in item["v_ids"]),
+            item["han"],
+            item["viet"],
+            *(item["proposals_text"][method] for method in METHODS),
+        ])
+    notes.save(notes_path)
+    return tsv_path, xlsx_path, notes_path
+
+
 def _plain(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
@@ -262,6 +511,8 @@ class EnsembleHanVietAligner:
         outputs: dict[str, list],
         accepted: list[dict[str, Any]],
         all_ok: bool,
+        *,
+        disagreement_start_index: int = 1,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Interleave accepted (>=2/3) pairs with in-place 3-way disagreement placeholders.
 
@@ -283,7 +534,7 @@ class EnsembleHanVietAligner:
             v_gap = list(range(v_start, v_end))
             if not h_gap and not v_gap:
                 return
-            disagreement_id = f"DISAGREE_{len(disagreements) + 1:03d}"
+            disagreement_id = f"DISAGREE_{disagreement_start_index + len(disagreements):03d}"
             h_gap_set = set(h_gap)
             v_gap_set = set(v_gap)
             proposals: dict[str, list[dict[str, Any]]] = {}
@@ -397,7 +648,8 @@ class EnsembleHanVietAligner:
                       *, enable_api: bool = False, enable_bertalign: bool = True,
                       enable_vecalign: bool = True,
                       api_response: dict | str | Path | None = None,
-                      output_name: str | None = None) -> EnsembleResult:
+                      output_name: str | None = None,
+                      disagreement_start_index: int = 1) -> EnsembleResult:
         out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
         meta_dir = (out_dir / "_details" / output_name) if output_name else out_dir
         meta_dir.mkdir(parents=True, exist_ok=True)
@@ -451,74 +703,14 @@ class EnsembleHanVietAligner:
                 print(f"[{name}] LỖI: {errors[name]}")
         accepted, review, stats = self.vote(han, vi, outputs, errors)
         all_ok = len(outputs) == len(METHODS)
-        output_rows, disagreements = self.build_output_rows(han, vi, outputs, accepted, all_ok)
-        # Approved data only if all 3 engines ran; files otherwise are PARTIAL.
-        base_stem = output_name if output_name else "nu_khoa_parallel"
-        stem = base_stem if all_ok else f"{base_stem}.PARTIAL"
-        tsv_path = out_dir / (stem + ".tsv")
-        xlsx_path = out_dir / (stem + ".xlsx")
-        # Avoid stale final files being mistaken for the new run if an engine now fails.
-        old_stem = f"{base_stem}.PARTIAL" if all_ok else base_stem
-        for extension in (".tsv", ".xlsx"):
-            old = out_dir / (old_stem + extension)
-            if old.exists():
-                old.unlink()
-        with tsv_path.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f, delimiter="\t", lineterminator="\n")
-            for row in output_rows:
-                writer.writerow([_plain(row["han"]), _plain(row["viet"])])
-        from openpyxl import Workbook
-        wb = Workbook()
-        sheet = wb.active; sheet.title = "DONG_HANG"
-        sheet.append(["Hán", "Việt"])
-        for row in output_rows:
-            sheet.append([_plain(row["han"]), _plain(row["viet"])])
-        sheet.column_dimensions["A"].width = 65
-        sheet.column_dimensions["B"].width = 85
-        wb.save(xlsx_path)
-
-        notes_path = out_dir / (f"{output_name}_note.xlsx" if output_name else "notes.xlsx")
-        notes = Workbook()
-        notes_sheet = notes.active
-        notes_sheet.title = "NOTES"
-        notes_sheet.append(["Tên tác phẩm", "Câu Hán", "Câu Việt", "Lỗi (mô tả ngắn gọn)", "Chỉnh sửa (ghi chú đề xuất)"])
-        notes_sheet.column_dimensions["A"].width = 32
-        notes_sheet.column_dimensions["B"].width = 70
-        notes_sheet.column_dimensions["C"].width = 70
-        notes_sheet.column_dimensions["D"].width = 55
-        notes_sheet.column_dimensions["E"].width = 85
-
-        disagree_sheet = notes.create_sheet(title="DISAGREEMENTS")
-        disagree_sheet.append(["ID", "Hán IDs", "Việt IDs", "Câu Hán", "Câu Việt", *METHODS])
-        disagree_sheet.column_dimensions["A"].width = 16
-        disagree_sheet.column_dimensions["B"].width = 14
-        disagree_sheet.column_dimensions["C"].width = 14
-        disagree_sheet.column_dimensions["D"].width = 55
-        disagree_sheet.column_dimensions["E"].width = 55
-        disagree_sheet.column_dimensions["F"].width = 65
-        disagree_sheet.column_dimensions["G"].width = 65
-        disagree_sheet.column_dimensions["H"].width = 65
-
-        for item in disagreements:
-            model_summary = "\n".join(
-                f"{method}: {item['proposals_text'][method]}" for method in METHODS
-            )
-            notes_sheet.append([
-                item["id"],
-                item["han"],
-                item["viet"],
-                f"[{item['id']}] 3-way disagreement (H={item['h_ids']}, V={item['v_ids']})",
-                model_summary,
-            ])
-            disagree_sheet.append([
-                item["id"],
-                ",".join(str(i) for i in item["h_ids"]),
-                ",".join(str(j) for j in item["v_ids"]),
-                item["han"],
-                item["viet"],
-                *(item["proposals_text"][method] for method in METHODS),
-            ])
-        notes.save(notes_path)
+        output_rows, disagreements = self.build_output_rows(
+            han, vi, outputs, accepted, all_ok,
+            disagreement_start_index=disagreement_start_index,
+        )
+        write_alignment_outputs(
+            out_dir, output_rows, disagreements,
+            all_ok=all_ok, output_name=output_name,
+        )
 
         (meta_dir / "review.jsonl").write_text("".join(json.dumps(item, ensure_ascii=False)+"\n"
                                                    for item in review), encoding="utf-8")

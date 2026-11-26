@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import unicodedata
@@ -13,7 +14,10 @@ if str(MODULE_ROOT) not in sys.path:
 
 from alignment_tool.EnsembleHanVietAligner import (  # noqa: E402
     EnsembleHanVietAligner,
+    split_parallel_texts_by_lines,
     split_sentences,
+    write_alignment_outputs,
+    write_parallel_parts,
 )
 
 
@@ -79,8 +83,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Discover all same-named file pairs across a Han-Nom folder and a Vietnamese folder, "
-            "run 3-way voting alignment (Bertalign + Vecalign + CLC API) on each pair, and write "
-            "<name>.tsv, <name>.xlsx, and <name>_note.xlsx to the target output directory."
+            "split each pair into line-bounded text parts (each pair <= max_chars), run 3-way "
+            "voting alignment (Bertalign + Vecalign + CLC API) on each part pair, and write "
+            "merged <name>.tsv, <name>.xlsx, and <name>_note.xlsx to the target output directory."
         )
     )
 
@@ -103,6 +108,15 @@ def parse_args() -> argparse.Namespace:
         help="Target folder where <name>.tsv, <name>.xlsx, and <name>_note.xlsx will be written.",
     )
     parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=5000,
+        help=(
+            "Maximum combined characters (Han + Vi) per split part pair, cut strictly at "
+            "newline boundaries (default: 5000)."
+        ),
+    )
+    parser.add_argument(
         "--extensions",
         type=str,
         default=".txt",
@@ -117,7 +131,7 @@ def parse_args() -> argparse.Namespace:
         "--split-mode",
         choices=("sentences", "lines"),
         default="sentences",
-        help="How to split input files into units: 'sentences' (default) or 'lines' (pre-segmented).",
+        help="How to split each part file into units: 'sentences' (default) or 'lines' (pre-segmented).",
     )
 
     # Engine toggles (all 3 enabled by default for 3-way voting)
@@ -136,7 +150,10 @@ def parse_args() -> argparse.Namespace:
         "--api-response-dir",
         type=Path,
         default=None,
-        help="Optional folder of saved CLC API JSON responses (<name>.json) for offline replay.",
+        help=(
+            "Optional folder of saved CLC API JSON responses for offline replay "
+            "(<name>_part_001.json or <name>.json for single-part files)."
+        ),
     )
     parser.add_argument(
         "--api-interval",
@@ -158,9 +175,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Discover paired files and print unit counts without running alignment engines.",
+        help="Discover paired files and preview line-level part splits without running engines.",
     )
     return parser.parse_args()
+
+
+def _resolve_api_response(
+    api_response_dir: Path | None,
+    stem: str,
+    part_idx: int,
+    total_parts: int,
+) -> Path | None:
+    if api_response_dir is None:
+        return None
+    part_candidate = api_response_dir / f"{stem}_part_{part_idx:03d}.json"
+    if part_candidate.is_file():
+        return part_candidate
+    if total_parts == 1:
+        single_candidate = api_response_dir / f"{stem}.json"
+        if single_candidate.is_file():
+            return single_candidate
+    raise FileNotFoundError(f"Missing API replay file: {part_candidate}")
 
 
 def main() -> None:
@@ -192,9 +227,16 @@ def main() -> None:
 
     if args.dry_run:
         for stem, han_path, vi_path in pairs:
-            han_units = _load_units(han_path, "han", args.split_mode)
-            vi_units = _load_units(vi_path, "vi", args.split_mode)
-            print(f"  [DRY-RUN] {stem}: Han={len(han_units)} units, Vi={len(vi_units)} units")
+            parts = split_parallel_texts_by_lines(
+                _read_text(han_path), _read_text(vi_path), max_chars=args.max_chars
+            )
+            print(f"  [DRY-RUN] {stem}: {len(parts)} part(s) (max_chars={args.max_chars})")
+            for idx, (h_part, v_part) in enumerate(parts, start=1):
+                combined = len(h_part) + len(v_part)
+                print(
+                    f"    part {idx:03d}: Han={len(h_part)} chars, "
+                    f"Vi={len(v_part)} chars, total={combined} chars"
+                )
         print("Dry run complete. No alignment engines were executed.")
         return
 
@@ -212,38 +254,107 @@ def main() -> None:
     for index, (stem, han_path, vi_path) in enumerate(pairs, start=1):
         print(f"\n[{index}/{len(pairs)}] Aligning: {stem}")
         try:
-            han_units = _load_units(han_path, "han", args.split_mode)
-            vi_units = _load_units(vi_path, "vi", args.split_mode)
-            print(f"  Units: Han={len(han_units)}, Vi={len(vi_units)}")
+            parts_dir = args.output_dir / "_parts" / stem
+            part_files = write_parallel_parts(
+                _read_text(han_path),
+                _read_text(vi_path),
+                parts_dir,
+                stem=stem,
+                max_chars=args.max_chars,
+            )
+            print(f"  Split into {len(part_files)} part file pair(s) in {parts_dir}")
 
-            api_resp = None
-            if args.api_response_dir is not None:
-                candidate = args.api_response_dir / f"{stem}.json"
-                if not candidate.is_file():
-                    raise FileNotFoundError(f"Missing API replay file: {candidate}")
-                api_resp = candidate
+            part_work_root = args.output_dir / "_details" / stem / "parts"
+            part_work_root.mkdir(parents=True, exist_ok=True)
 
-            result = aligner.align_section(
-                han_units,
-                vi_units,
-                out_dir=args.output_dir,
-                enable_bertalign=not args.disable_bertalign,
-                enable_vecalign=not args.disable_vecalign,
-                enable_api=not args.disable_api,
-                api_response=api_resp,
+            all_rows: list[dict] = []
+            all_disagreements: list[dict] = []
+            part_summaries: list[dict] = []
+            total_accepted = 0
+            all_parts_ok = True
+            next_disagree_idx = 1
+
+            for part_idx, (h_part_path, v_part_path) in enumerate(part_files, start=1):
+                h_text = _read_text(h_part_path)
+                v_text = _read_text(v_part_path)
+                han_units = _load_units(h_part_path, "han", args.split_mode)
+                vi_units = _load_units(v_part_path, "vi", args.split_mode)
+                print(
+                    f"  [Part {part_idx}/{len(part_files)}] "
+                    f"chars={len(h_text) + len(v_text)} (Han={len(h_text)}, Vi={len(v_text)}), "
+                    f"units=(Han={len(han_units)}, Vi={len(vi_units)})"
+                )
+
+                api_resp = _resolve_api_response(
+                    args.api_response_dir, stem, part_idx, len(part_files)
+                )
+
+                part_result = aligner.align_section(
+                    han_units,
+                    vi_units,
+                    out_dir=part_work_root / f"part_{part_idx:03d}",
+                    enable_bertalign=not args.disable_bertalign,
+                    enable_vecalign=not args.disable_vecalign,
+                    enable_api=not args.disable_api,
+                    api_response=api_resp,
+                    output_name=f"{stem}_part_{part_idx:03d}",
+                    disagreement_start_index=next_disagree_idx,
+                )
+
+                part_ok = all(part_result.methods_ok.values())
+                all_parts_ok = all_parts_ok and part_ok
+                total_accepted += len(part_result.accepted)
+                next_disagree_idx += len(part_result.disagreements)
+
+                for row in part_result.rows:
+                    all_rows.append({**row, "part": part_idx})
+                for item in part_result.disagreements:
+                    all_disagreements.append({**item, "part": part_idx})
+
+                part_summaries.append({
+                    "part": part_idx,
+                    "han_file": str(h_part_path),
+                    "vi_file": str(v_part_path),
+                    "han_chars": len(h_text),
+                    "vi_chars": len(v_text),
+                    "combined_chars": len(h_text) + len(v_text),
+                    "methods_ok": part_result.methods_ok,
+                    "method_errors": part_result.method_errors,
+                    "stats": part_result.stats,
+                })
+
+            tsv_path, xlsx_path, notes_path = write_alignment_outputs(
+                args.output_dir,
+                all_rows,
+                all_disagreements,
+                all_ok=all_parts_ok,
                 output_name=stem,
             )
 
-            all_ok = all(result.methods_ok.values())
-            res_stem = stem if all_ok else f"{stem}.PARTIAL"
-            print(f"  Status:              {result.stats.get('status')}")
-            print(f"  Engines OK:          {result.methods_ok}")
-            if result.method_errors:
-                print(f"  Engine Errors:       {result.method_errors}")
-            print(f"  Accepted (>=2/3):    {result.stats.get('accepted_pairs')}")
-            print(f"  Disagreement blocks: {result.stats.get('disagreement_blocks')}")
-            print(f"  Result files:        {args.output_dir / (res_stem + '.tsv')}, {args.output_dir / (res_stem + '.xlsx')}")
-            print(f"  Note file:           {args.output_dir / (stem + '_note.xlsx')}")
+            summary_path = args.output_dir / "_details" / stem / "summary.json"
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "stem": stem,
+                        "max_chars": args.max_chars,
+                        "total_parts": len(part_files),
+                        "all_parts_ok": all_parts_ok,
+                        "total_accepted_pairs": total_accepted,
+                        "total_disagreement_blocks": len(all_disagreements),
+                        "parts": part_summaries,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            print(f"  Status:              {'VOTING_READY_REVIEW' if all_parts_ok else 'INCOMPLETE_METHODS'}")
+            print(f"  Accepted (>=2/3):    {total_accepted}")
+            print(f"  Disagreement blocks: {len(all_disagreements)}")
+            print(f"  Result files:        {tsv_path}, {xlsx_path}")
+            print(f"  Note file:           {notes_path}")
         except Exception as exc:
             failures.append((stem, f"{type(exc).__name__}: {exc}"))
             print(f"  [ERROR] {stem}: {type(exc).__name__}: {exc}")
