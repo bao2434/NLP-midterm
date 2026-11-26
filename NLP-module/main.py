@@ -117,6 +117,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--max-units",
+        type=int,
+        default=80,
+        help=(
+            "Maximum sentence/line units per side in each split part pair, matching CLC API's "
+            "per-request limit (default: 80)."
+        ),
+    )
+    parser.add_argument(
         "--extensions",
         type=str,
         default=".txt",
@@ -228,9 +237,16 @@ def main() -> None:
     if args.dry_run:
         for stem, han_path, vi_path in pairs:
             parts = split_parallel_texts_by_lines(
-                _read_text(han_path), _read_text(vi_path), max_chars=args.max_chars
+                _read_text(han_path),
+                _read_text(vi_path),
+                max_chars=args.max_chars,
+                max_units=args.max_units,
+                split_mode=args.split_mode,
             )
-            print(f"  [DRY-RUN] {stem}: {len(parts)} part(s) (max_chars={args.max_chars})")
+            print(
+                f"  [DRY-RUN] {stem}: {len(parts)} part(s) "
+                f"(max_chars={args.max_chars}, max_units={args.max_units})"
+            )
             for idx, (h_part, v_part) in enumerate(parts, start=1):
                 combined = len(h_part) + len(v_part)
                 print(
@@ -261,6 +277,8 @@ def main() -> None:
                 parts_dir,
                 stem=stem,
                 max_chars=args.max_chars,
+                max_units=args.max_units,
+                split_mode=args.split_mode,
             )
             print(f"  Split into {len(part_files)} part file pair(s) in {parts_dir}")
 

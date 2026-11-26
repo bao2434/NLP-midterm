@@ -53,6 +53,9 @@ def split_parallel_texts_by_lines(
     han_text: str,
     vi_text: str,
     max_chars: int = 5000,
+    *,
+    max_units: int | None = 80,
+    split_mode: str = "sentences",
 ) -> list[tuple[str, str]]:
     """Split a (han, vi) text pair into smaller pairs at newline boundaries.
 
@@ -61,20 +64,44 @@ def split_parallel_texts_by_lines(
     - Every returned pair has len(han_part) + len(vi_part) <= max_chars
       (unless a single Han line + a single Vi line alone already exceed max_chars,
       in which case lines are kept intact rather than cut mid-line).
+    - When max_units is set (default 80, matching CLC API's max_units_per_request),
+      also keeps each side's unit count <= max_units (unless a single line alone
+      exceeds max_units).
     - Every returned pair is non-empty on both sides.
     """
     if max_chars < 1:
         raise ValueError("max_chars must be >= 1")
+    if max_units is not None and max_units < 1:
+        raise ValueError("max_units must be >= 1 or None")
 
     han_lines = [line for line in han_text.replace("\r\n", "\n").replace("\r", "\n").splitlines() if line.strip()]
     vi_lines = [line for line in vi_text.replace("\r\n", "\n").replace("\r", "\n").splitlines() if line.strip()]
     if not han_lines or not vi_lines:
         raise ValueError("Han or Vietnamese text is empty after stripping blank lines")
 
+    def _line_unit_count(line: str, lang: str) -> int:
+        if split_mode == "lines":
+            return 1
+        return max(1, len(split_sentences(line, lang)))
+
+    han_units = [_line_unit_count(line, "han") for line in han_lines]
+    vi_units = [_line_unit_count(line, "vi") for line in vi_lines]
+
     han_joined = "\n".join(han_lines)
     vi_joined = "\n".join(vi_lines)
-    if len(han_joined) + len(vi_joined) <= max_chars:
+    units_ok_whole = (
+        max_units is None
+        or (sum(han_units) <= max_units and sum(vi_units) <= max_units)
+    )
+    if len(han_joined) + len(vi_joined) <= max_chars and units_ok_whole:
         return [(han_joined, vi_joined)]
+
+    def _fits(h_len: int, v_len: int, h_u: int, v_u: int) -> bool:
+        if h_len + v_len > max_chars:
+            return False
+        if max_units is not None and (h_u > max_units or v_u > max_units):
+            return False
+        return True
 
     parts: list[tuple[str, str]] = []
 
@@ -82,20 +109,23 @@ def split_parallel_texts_by_lines(
     if len(han_lines) == len(vi_lines):
         cur_h: list[str] = []
         cur_v: list[str] = []
-        cur_h_len = 0
-        cur_v_len = 0
-        for hl, vl in zip(han_lines, vi_lines):
+        cur_h_len = cur_v_len = 0
+        cur_h_u = cur_v_u = 0
+        for hl, vl, hu, vu in zip(han_lines, vi_lines, han_units, vi_units):
             add_h = (1 if cur_h else 0) + len(hl)
             add_v = (1 if cur_v else 0) + len(vl)
-            if cur_h and (cur_h_len + add_h + cur_v_len + add_v > max_chars):
+            if cur_h and not _fits(cur_h_len + add_h, cur_v_len + add_v, cur_h_u + hu, cur_v_u + vu):
                 parts.append(("\n".join(cur_h), "\n".join(cur_v)))
                 cur_h, cur_v = [hl], [vl]
                 cur_h_len, cur_v_len = len(hl), len(vl)
+                cur_h_u, cur_v_u = hu, vu
             else:
                 cur_h.append(hl)
                 cur_v.append(vl)
                 cur_h_len += add_h
                 cur_v_len += add_v
+                cur_h_u += hu
+                cur_v_u += vu
         if cur_h or cur_v:
             parts.append(("\n".join(cur_h), "\n".join(cur_v)))
         return parts
@@ -116,69 +146,69 @@ def split_parallel_texts_by_lines(
     while hi < nh or vi_i < nv:
         cur_h = []
         cur_v = []
-        cur_h_len = 0
-        cur_v_len = 0
+        cur_h_len = cur_v_len = 0
+        cur_h_u = cur_v_u = 0
 
         # Ensure at least one line from each side that still has remaining lines.
         if hi < nh:
             cur_h.append(han_lines[hi])
             cur_h_len = len(han_lines[hi])
+            cur_h_u = han_units[hi]
             hi += 1
         if vi_i < nv:
             cur_v.append(vi_lines[vi_i])
             cur_v_len = len(vi_lines[vi_i])
+            cur_v_u = vi_units[vi_i]
             vi_i += 1
 
         while hi < nh or vi_i < nv:
-            # Remaining full lengths if we were to finish both sides in this chunk.
             rem_h_len = sum(len(line) + 1 for line in han_lines[hi:]) if hi < nh else 0
             rem_v_len = sum(len(line) + 1 for line in vi_lines[vi_i:]) if vi_i < nv else 0
-            if cur_h_len + rem_h_len + cur_v_len + rem_v_len <= max_chars:
+            rem_h_u = sum(han_units[hi:]) if hi < nh else 0
+            rem_v_u = sum(vi_units[vi_i:]) if vi_i < nv else 0
+            if _fits(cur_h_len + rem_h_len, cur_v_len + rem_v_len, cur_h_u + rem_h_u, cur_v_u + rem_v_u):
                 if hi < nh:
                     cur_h.extend(han_lines[hi:])
                     cur_h_len += rem_h_len
+                    cur_h_u += rem_h_u
                     hi = nh
                 if vi_i < nv:
                     cur_v.extend(vi_lines[vi_i:])
                     cur_v_len += rem_v_len
+                    cur_v_u += rem_v_u
                     vi_i = nv
                 break
 
-            # Candidate sides that still have lines; avoid consuming the very last line
-            # of one side while the other side still won't fit in the current chunk.
             can_h = hi < nh and not (hi == nh - 1 and vi_i < nv)
             can_v = vi_i < nv and not (vi_i == nv - 1 and hi < nh)
 
-            candidates: list[str] = []
             if can_h and can_v:
-                candidates = ["han", "vi"] if han_cum[hi] <= vi_cum[vi_i] else ["vi", "han"]
+                side = "han" if han_cum[hi] <= vi_cum[vi_i] else "vi"
             elif can_h:
-                candidates = ["han"]
+                side = "han"
             elif can_v:
-                candidates = ["vi"]
+                side = "vi"
             else:
                 break
 
-            added = False
-            for side in candidates:
-                if side == "han":
-                    add = (1 if cur_h else 0) + len(han_lines[hi])
-                    if cur_h_len + add + cur_v_len <= max_chars:
-                        cur_h.append(han_lines[hi])
-                        cur_h_len += add
-                        hi += 1
-                        added = True
-                        break
+            if side == "han":
+                add = (1 if cur_h else 0) + len(han_lines[hi])
+                if _fits(cur_h_len + add, cur_v_len, cur_h_u + han_units[hi], cur_v_u):
+                    cur_h.append(han_lines[hi])
+                    cur_h_len += add
+                    cur_h_u += han_units[hi]
+                    hi += 1
                 else:
-                    add = (1 if cur_v else 0) + len(vi_lines[vi_i])
-                    if cur_h_len + cur_v_len + add <= max_chars:
-                        cur_v.append(vi_lines[vi_i])
-                        cur_v_len += add
-                        vi_i += 1
-                        added = True
-                        break
-            if not added:
-                break
+                    break
+            else:
+                add = (1 if cur_v else 0) + len(vi_lines[vi_i])
+                if _fits(cur_h_len, cur_v_len + add, cur_h_u, cur_v_u + vi_units[vi_i]):
+                    cur_v.append(vi_lines[vi_i])
+                    cur_v_len += add
+                    cur_v_u += vi_units[vi_i]
+                    vi_i += 1
+                else:
+                    break
 
         parts.append(("\n".join(cur_h), "\n".join(cur_v)))
 
@@ -192,6 +222,8 @@ def write_parallel_parts(
     *,
     stem: str = "part",
     max_chars: int = 5000,
+    max_units: int | None = 80,
+    split_mode: str = "sentences",
 ) -> list[tuple[Path, Path]]:
     """Split a (han, vi) text pair at newline boundaries and write part .txt files."""
     parts_dir = Path(parts_dir)
@@ -201,7 +233,9 @@ def write_parallel_parts(
         if old.is_file():
             old.unlink()
 
-    pairs = split_parallel_texts_by_lines(han_text, vi_text, max_chars=max_chars)
+    pairs = split_parallel_texts_by_lines(
+        han_text, vi_text, max_chars=max_chars, max_units=max_units, split_mode=split_mode
+    )
     written: list[tuple[Path, Path]] = []
     for idx, (han_part, vi_part) in enumerate(pairs, start=1):
         h_path = parts_dir / f"{stem}_han_part_{idx:03d}.txt"
@@ -401,8 +435,11 @@ class EnsembleHanVietAligner:
             raise ValueError("overlap_n và batch_size phải > 0")
 
     def run_bertalign(self, han: list[str], vi: list[str]):
+        import faiss
+        import numpy as np
         from bertalign import Bertalign
         import bertalign.aligner as bert_module
+        import bertalign.corelib as bert_corelib
         # Official Bertalign's auto-detector supports 25 languages and does not include
         # Vietnamese. Upstream also uses a live Google Translate detection call.
         # Both texts' languages are KNOWN, so supply zh/vi for this *one* constructor.
@@ -414,7 +451,33 @@ class EnsembleHanVietAligner:
             aligner = Bertalign("\n".join(han), "\n".join(vi), is_split=True)
         finally:
             bert_module.detect_lang = original_detector
-        aligner.align_sents()
+
+        # When running on a GPU machine (e.g. Kaggle GPU) with faiss-cpu installed,
+        # Bertalign's find_top_k_sents calls faiss.StandardGpuResources() and crashes.
+        # Fall back to exact CPU faiss.IndexFlatIP while keeping GPU embedding encoding.
+        patched_faiss_cpu = not hasattr(faiss, "StandardGpuResources")
+        orig_core_topk = getattr(bert_corelib, "find_top_k_sents", None)
+        orig_aligner_topk = getattr(bert_module, "find_top_k_sents", None)
+        if patched_faiss_cpu:
+            def _cpu_find_top_k_sents(src_vecs, tgt_vecs, k=3):
+                src = np.ascontiguousarray(src_vecs, dtype=np.float32)
+                tgt = np.ascontiguousarray(tgt_vecs, dtype=np.float32)
+                index = faiss.IndexFlatIP(src.shape[1])
+                index.add(tgt)
+                return index.search(src, k)
+
+            bert_corelib.find_top_k_sents = _cpu_find_top_k_sents
+            if orig_aligner_topk is not None:
+                bert_module.find_top_k_sents = _cpu_find_top_k_sents
+        try:
+            aligner.align_sents()
+        finally:
+            if patched_faiss_cpu:
+                if orig_core_topk is not None:
+                    bert_corelib.find_top_k_sents = orig_core_topk
+                if orig_aligner_topk is not None:
+                    bert_module.find_top_k_sents = orig_aligner_topk
+
         src_seen = getattr(aligner, "src_sents", None)
         tgt_seen = getattr(aligner, "tgt_sents", None)
         if src_seen is not None and [_plain(s) for s in src_seen] != [_plain(s) for s in han]:
