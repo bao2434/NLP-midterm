@@ -34,6 +34,19 @@ class EnsembleResult:
     stats: dict[str, Any]
     accepted: list[dict[str, Any]] = field(default_factory=list)
     review: list[dict[str, Any]] = field(default_factory=list)
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    disagreements: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _format_model_proposals(proposals: list[dict[str, Any]]) -> str:
+    if not proposals:
+        return "(no alignment)"
+    parts = []
+    for item in proposals:
+        h_label = ",".join(str(i) for i in item["h_ids"])
+        v_label = ",".join(str(j) for j in item["v_ids"])
+        parts.append(f"H[{h_label}] <-> V[{v_label}]: {_plain(item['han'])} ||| {_plain(item['viet'])}")
+    return "; ".join(parts)
 
 
 def _plain(s: str) -> str:
@@ -243,6 +256,94 @@ class EnsembleHanVietAligner:
         return beads
 
     @staticmethod
+    def build_output_rows(
+        han: list[str],
+        vi: list[str],
+        outputs: dict[str, list],
+        accepted: list[dict[str, Any]],
+        all_ok: bool,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Interleave accepted (>=2/3) pairs with in-place 3-way disagreement placeholders.
+
+        When all 3 engines succeeded, any gap between consecutive accepted beads is a region
+        where all three models failed to reach >=2/3 agreement. Each gap is assigned a unique
+        ID (DISAGREE_001, ...), placed in-order in `rows`, and recorded in `disagreements`
+        with what each model proposed for that region.
+        """
+        if not all_ok:
+            return [], []
+
+        rows: list[dict[str, Any]] = []
+        disagreements: list[dict[str, Any]] = []
+        prev_h = -1
+        prev_v = -1
+
+        def append_gap(h_start: int, h_end: int, v_start: int, v_end: int) -> None:
+            h_gap = list(range(h_start, h_end))
+            v_gap = list(range(v_start, v_end))
+            if not h_gap and not v_gap:
+                return
+            disagreement_id = f"DISAGREE_{len(disagreements) + 1:03d}"
+            h_gap_set = set(h_gap)
+            v_gap_set = set(v_gap)
+            proposals: dict[str, list[dict[str, Any]]] = {}
+            proposals_text: dict[str, str] = {}
+            for method in METHODS:
+                matched = []
+                for bh, bv in outputs.get(method, []):
+                    if (h_gap_set & set(bh)) or (v_gap_set & set(bv)):
+                        matched.append({
+                            "h_ids": list(bh),
+                            "v_ids": list(bv),
+                            "han": " ".join(han[i] for i in bh),
+                            "viet": " ".join(vi[j] for j in bv),
+                        })
+                proposals[method] = matched
+                proposals_text[method] = _format_model_proposals(matched)
+
+            han_text = _plain(" ".join(han[i] for i in h_gap)) if h_gap else ""
+            vi_text = _plain(" ".join(vi[j] for j in v_gap)) if v_gap else ""
+            han_placeholder = (
+                f"[{disagreement_id}] DISAGREEMENT: {han_text}"
+                if han_text else f"[{disagreement_id}] DISAGREEMENT (empty)"
+            )
+            vi_placeholder = (
+                f"[{disagreement_id}] DISAGREEMENT: {vi_text}"
+                if vi_text else f"[{disagreement_id}] DISAGREEMENT (empty)"
+            )
+
+            entry = {
+                "id": disagreement_id,
+                "kind": "THREE_WAY_DISAGREEMENT",
+                "h_ids": h_gap,
+                "v_ids": v_gap,
+                "han": han_text,
+                "viet": vi_text,
+                "proposals": proposals,
+                "proposals_text": proposals_text,
+            }
+            disagreements.append(entry)
+            rows.append({
+                "kind": "DISAGREEMENT",
+                "disagreement_id": disagreement_id,
+                "h_ids": h_gap,
+                "v_ids": v_gap,
+                "han": han_placeholder,
+                "viet": vi_placeholder,
+                "votes": 0,
+                "voters": [],
+            })
+
+        for item in accepted:
+            append_gap(prev_h + 1, item["h_ids"][0], prev_v + 1, item["v_ids"][0])
+            rows.append({**item, "kind": "ACCEPTED", "disagreement_id": None})
+            prev_h = item["h_ids"][-1]
+            prev_v = item["v_ids"][-1]
+
+        append_gap(prev_h + 1, len(han), prev_v + 1, len(vi))
+        return rows, disagreements
+
+    @staticmethod
     def vote(han: list[str], vi: list[str], outputs: dict[str, list], errors: dict[str, str]):
         """Conservative exact-bead majority. 3/3 must have RUN, else nothing accepted."""
         counts: dict[tuple, set[str]] = defaultdict(set)
@@ -265,8 +366,9 @@ class EnsembleHanVietAligner:
                              "votes": len(counts[(h, v)]), "voters": sorted(counts[(h, v)])})
             taken_h.update(h); taken_v.update(v)
             last_h, last_v = h[-1], v[-1]
+        _, disagreements = EnsembleHanVietAligner.build_output_rows(han, vi, outputs, accepted, all_ok)
         accepted_keys = {(tuple(row['h_ids']), tuple(row['v_ids'])) for row in accepted}
-        reviews = []
+        reviews: list[dict[str, Any]] = list(disagreements)
         for (h, v), voters in sorted(counts.items(), key=lambda it:(it[0][0][0], it[0][1][0])):
             if (h, v) not in accepted_keys:
                 reviews.append({"kind": "DISAGREEMENT" if all_ok else "INCOMPLETE_ENGINES",
@@ -283,7 +385,9 @@ class EnsembleHanVietAligner:
         stats = {"status": "VOTING_READY_REVIEW" if all_ok else "INCOMPLETE_METHODS",
                  "engines_ok": sorted(outputs), "engines_failed": errors,
                  "han_sentences": len(han), "vi_sentences": len(vi),
-                 "accepted_pairs": len(accepted), "review_items": len(reviews),
+                 "accepted_pairs": len(accepted),
+                 "disagreement_blocks": len(disagreements),
+                 "review_items": len(reviews),
                  "accepted_han_coverage": round(len(taken_h) / len(han), 4) if han else 0,
                  "accepted_vi_coverage": round(len(taken_v) / len(vi), 4) if vi else 0,
                  "note": "Voting >=2/3 is NOT semantic accuracy >=95%. Manually review and compute gold evaluation."}
@@ -292,11 +396,14 @@ class EnsembleHanVietAligner:
     def align_section(self, han: list[str], vi: list[str], out_dir: str | Path,
                       *, enable_api: bool = False, enable_bertalign: bool = True,
                       enable_vecalign: bool = True,
-                      api_response: dict | str | Path | None = None) -> EnsembleResult:
+                      api_response: dict | str | Path | None = None,
+                      output_name: str | None = None) -> EnsembleResult:
         out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+        meta_dir = (out_dir / "_details" / output_name) if output_name else out_dir
+        meta_dir.mkdir(parents=True, exist_ok=True)
         # Không giữ nhầm đề xuất / mapping từ lần chạy trước nếu engine mới lỗi.
         for filename in [*(f"{method}_proposals.json" for method in METHODS), "api_mapping.json"]:
-            candidate = out_dir / filename
+            candidate = meta_dir / filename
             if candidate.is_file():
                 candidate.unlink()
         if not han or not vi:
@@ -305,7 +412,7 @@ class EnsembleHanVietAligner:
             raise ValueError("Mỗi đơn vị phải là một dòng vật lý, không chứa tab")
         input_hash = hashlib.sha256(json.dumps({"han": han, "vi": vi},
                              ensure_ascii=False).encode("utf-8")).hexdigest()
-        (out_dir / "input_sentences.json").write_text(json.dumps({
+        (meta_dir / "input_sentences.json").write_text(json.dumps({
             "han": han, "viet": vi, "sha256": input_hash}, ensure_ascii=False, indent=2), encoding="utf-8")
         # Cho phép kiểm thử offline bằng response API đã lưu, KHÔNG gọi API/quota.
         if api_response is not None:
@@ -324,61 +431,106 @@ class EnsembleHanVietAligner:
                 if name == "bertalign":
                     beads = self.run_bertalign(han, vi)
                 elif name == "vecalign":
-                    beads = self.run_vecalign(han, vi, out_dir / "vecalign_files")
+                    beads = self.run_vecalign(han, vi, meta_dir / "vecalign_files")
                 else:
                     beads = self.run_api(han, vi, api_response=api_response)
                 validate_beads(beads, len(han), len(vi))
                 outputs[name] = beads
                 if name == "api":
                     # Bằng chứng cho việc quy đổi native index -> index chung.
-                    (out_dir / "api_mapping.json").write_text(json.dumps({
+                    (meta_dir / "api_mapping.json").write_text(json.dumps({
                         "mode": self._last_api_mode,
                         "trace": self._last_api_trace,
                         "mapped_rows": self._last_api_rows,
                     }, ensure_ascii=False, indent=2), encoding="utf-8")
-                (out_dir / f"{name}_proposals.json").write_text(json.dumps([
+                (meta_dir / f"{name}_proposals.json").write_text(json.dumps([
                     {"h_ids": list(h), "v_ids": list(v)} for h, v in beads
                 ], ensure_ascii=False, indent=2), encoding="utf-8")
             except Exception as exc:
                 errors[name] = f"{type(exc).__name__}: {exc}"
                 print(f"[{name}] LỖI: {errors[name]}")
         accepted, review, stats = self.vote(han, vi, outputs, errors)
+        all_ok = len(outputs) == len(METHODS)
+        output_rows, disagreements = self.build_output_rows(han, vi, outputs, accepted, all_ok)
         # Approved data only if all 3 engines ran; files otherwise are PARTIAL.
-        stem = "nu_khoa_parallel" if len(outputs) == 3 else "nu_khoa_parallel.PARTIAL"
+        base_stem = output_name if output_name else "nu_khoa_parallel"
+        stem = base_stem if all_ok else f"{base_stem}.PARTIAL"
         tsv_path = out_dir / (stem + ".tsv")
         xlsx_path = out_dir / (stem + ".xlsx")
         # Avoid stale final files being mistaken for the new run if an engine now fails.
-        old_stem = "nu_khoa_parallel.PARTIAL" if len(outputs) == 3 else "nu_khoa_parallel"
+        old_stem = f"{base_stem}.PARTIAL" if all_ok else base_stem
         for extension in (".tsv", ".xlsx"):
             old = out_dir / (old_stem + extension)
             if old.exists():
                 old.unlink()
         with tsv_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f, delimiter="\t", lineterminator="\n")
-            for row in accepted:
+            for row in output_rows:
                 writer.writerow([_plain(row["han"]), _plain(row["viet"])])
         from openpyxl import Workbook
         wb = Workbook()
         sheet = wb.active; sheet.title = "DONG_HANG"
         sheet.append(["Hán", "Việt"])
-        for row in accepted:
+        for row in output_rows:
             sheet.append([_plain(row["han"]), _plain(row["viet"])])
         sheet.column_dimensions["A"].width = 65
         sheet.column_dimensions["B"].width = 85
         wb.save(xlsx_path)
-        notes_path = out_dir / "notes.xlsx"
-        if not notes_path.exists():
-            notes = Workbook()
-            notes.active.title = "NOTES"
-            notes.active.append(["Tên tác phẩm", "Câu Hán", "Câu Việt", "Lỗi (mô tả ngắn gọn)", "Chỉnh sửa (ghi chú đề xuất)"])
-            notes.active.column_dimensions["A"].width = 32
-            notes.active.column_dimensions["B"].width = 70
-            notes.active.column_dimensions["C"].width = 70
-            notes.active.column_dimensions["D"].width = 55
-            notes.active.column_dimensions["E"].width = 55
-            notes.save(notes_path)
-        (out_dir / "review.jsonl").write_text("".join(json.dumps(item, ensure_ascii=False)+"\n"
+
+        notes_path = out_dir / (f"{output_name}_note.xlsx" if output_name else "notes.xlsx")
+        notes = Workbook()
+        notes_sheet = notes.active
+        notes_sheet.title = "NOTES"
+        notes_sheet.append(["Tên tác phẩm", "Câu Hán", "Câu Việt", "Lỗi (mô tả ngắn gọn)", "Chỉnh sửa (ghi chú đề xuất)"])
+        notes_sheet.column_dimensions["A"].width = 32
+        notes_sheet.column_dimensions["B"].width = 70
+        notes_sheet.column_dimensions["C"].width = 70
+        notes_sheet.column_dimensions["D"].width = 55
+        notes_sheet.column_dimensions["E"].width = 85
+
+        disagree_sheet = notes.create_sheet(title="DISAGREEMENTS")
+        disagree_sheet.append(["ID", "Hán IDs", "Việt IDs", "Câu Hán", "Câu Việt", *METHODS])
+        disagree_sheet.column_dimensions["A"].width = 16
+        disagree_sheet.column_dimensions["B"].width = 14
+        disagree_sheet.column_dimensions["C"].width = 14
+        disagree_sheet.column_dimensions["D"].width = 55
+        disagree_sheet.column_dimensions["E"].width = 55
+        disagree_sheet.column_dimensions["F"].width = 65
+        disagree_sheet.column_dimensions["G"].width = 65
+        disagree_sheet.column_dimensions["H"].width = 65
+
+        for item in disagreements:
+            model_summary = "\n".join(
+                f"{method}: {item['proposals_text'][method]}" for method in METHODS
+            )
+            notes_sheet.append([
+                item["id"],
+                item["han"],
+                item["viet"],
+                f"[{item['id']}] 3-way disagreement (H={item['h_ids']}, V={item['v_ids']})",
+                model_summary,
+            ])
+            disagree_sheet.append([
+                item["id"],
+                ",".join(str(i) for i in item["h_ids"]),
+                ",".join(str(j) for j in item["v_ids"]),
+                item["han"],
+                item["viet"],
+                *(item["proposals_text"][method] for method in METHODS),
+            ])
+        notes.save(notes_path)
+
+        (meta_dir / "review.jsonl").write_text("".join(json.dumps(item, ensure_ascii=False)+"\n"
                                                    for item in review), encoding="utf-8")
-        (out_dir / "vote_details.json").write_text(json.dumps(accepted, ensure_ascii=False, indent=2), encoding="utf-8")
-        (out_dir / "report.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
-        return EnsembleResult(out_dir, {k: k in outputs for k in METHODS}, errors, stats, accepted, review)
+        (meta_dir / "vote_details.json").write_text(json.dumps(output_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        (meta_dir / "report.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+        return EnsembleResult(
+            out_dir,
+            {k: k in outputs for k in METHODS},
+            errors,
+            stats,
+            accepted,
+            review,
+            output_rows,
+            disagreements,
+        )
