@@ -207,15 +207,35 @@ class EnsembleHanVietAligner:
         validate_beads(beads, len(han), len(vi))
         return [b for b in beads if b[0] and b[1]]
 
-    def run_api(self, han: list[str], vi: list[str]):
+    def run_api(self, han: list[str], vi: list[str], *, api_response: dict | None = None):
+        """Dóng bằng CLC và ÁNH XẠ về đúng unit đầu vào.
+
+        api_response=None: gọi API thật; dict: phát lại response đã lưu,
+        không gọi mạng, kiểm tra nguyên văn text để chống dùng nhầm dataset.
+        """
         try:
-            from .HanVietAligner import HanVietAligner
+            from .HanVietAligner import HanVietAligner, AlignmentError, _parse_api_result
         except ImportError:
-            from HanVietAligner import HanVietAligner
-        # Wrap EXISTING Lab CLC API client; never invoke API if not requested.
-        client = HanVietAligner(token=self.api_token, split_mode="lines",
-                               min_interval_s=self.api_interval_s)
-        rows = client.align_texts("\n".join(han), "\n".join(vi))
+            from HanVietAligner import HanVietAligner, AlignmentError, _parse_api_result
+
+        if api_response is None:
+            client = HanVietAligner(token=self.api_token, split_mode="lines",
+                                   min_interval_s=self.api_interval_s)
+            rows = client.align_texts("\n".join(han), "\n".join(vi))
+            self._last_api_trace = client.last_trace
+            self._last_api_mode = "LIVE"
+        else:
+            if not isinstance(api_response, dict):
+                raise ValueError("api_response phải là dict JSON")
+            if api_response.get("is_success") is not True or api_response.get("code") != "000000":
+                raise AlignmentError("API response replay không thành công; không dùng để voting")
+            data = api_response.get("data")
+            if not isinstance(data, dict) or not isinstance(data.get("result"), list):
+                raise AlignmentError("API response replay thiếu data.result (list)")
+            rows, trace = _parse_api_result(data["result"], han, vi)
+            self._last_api_trace = trace
+            self._last_api_mode = "REPLAY_VERIFIED"
+        self._last_api_rows = rows
         beads = [_bead(range(item["han_start"], item["han_end"] + 1),
                        range(item["vi_start"], item["vi_end"] + 1), len(han), len(vi))
                  for item in rows]
@@ -271,8 +291,14 @@ class EnsembleHanVietAligner:
 
     def align_section(self, han: list[str], vi: list[str], out_dir: str | Path,
                       *, enable_api: bool = False, enable_bertalign: bool = True,
-                      enable_vecalign: bool = True) -> EnsembleResult:
+                      enable_vecalign: bool = True,
+                      api_response: dict | str | Path | None = None) -> EnsembleResult:
         out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+        # Không giữ nhầm đề xuất / mapping từ lần chạy trước nếu engine mới lỗi.
+        for filename in [*(f"{method}_proposals.json" for method in METHODS), "api_mapping.json"]:
+            candidate = out_dir / filename
+            if candidate.is_file():
+                candidate.unlink()
         if not han or not vi:
             raise ValueError("Không đủ câu Hán và Việt")
         if any("\n" in item or "\t" in item for item in han + vi):
@@ -281,6 +307,14 @@ class EnsembleHanVietAligner:
                              ensure_ascii=False).encode("utf-8")).hexdigest()
         (out_dir / "input_sentences.json").write_text(json.dumps({
             "han": han, "viet": vi, "sha256": input_hash}, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Cho phép kiểm thử offline bằng response API đã lưu, KHÔNG gọi API/quota.
+        if api_response is not None:
+            if not enable_api:
+                raise ValueError("api_response được cung cấp nhưng enable_api=False")
+            if isinstance(api_response, (str, Path)):
+                api_response = json.loads(Path(api_response).read_text(encoding="utf-8"))
+            if not isinstance(api_response, dict):
+                raise ValueError("api_response phải là dict hoặc đường dẫn JSON")
         outputs = {}; errors = {}
         opts = {"bertalign": enable_bertalign, "vecalign": enable_vecalign, "api": enable_api}
         for name in METHODS:
@@ -292,9 +326,16 @@ class EnsembleHanVietAligner:
                 elif name == "vecalign":
                     beads = self.run_vecalign(han, vi, out_dir / "vecalign_files")
                 else:
-                    beads = self.run_api(han, vi)
+                    beads = self.run_api(han, vi, api_response=api_response)
                 validate_beads(beads, len(han), len(vi))
                 outputs[name] = beads
+                if name == "api":
+                    # Bằng chứng cho việc quy đổi native index -> index chung.
+                    (out_dir / "api_mapping.json").write_text(json.dumps({
+                        "mode": self._last_api_mode,
+                        "trace": self._last_api_trace,
+                        "mapped_rows": self._last_api_rows,
+                    }, ensure_ascii=False, indent=2), encoding="utf-8")
                 (out_dir / f"{name}_proposals.json").write_text(json.dumps([
                     {"h_ids": list(h), "v_ids": list(v)} for h, v in beads
                 ], ensure_ascii=False, indent=2), encoding="utf-8")

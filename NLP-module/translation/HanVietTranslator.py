@@ -18,8 +18,10 @@ Chỉ cần import từ package::
     # Dịch hết: tự bỏ qua những đoạn đã dịch.
     result = tool.translate("/kaggle/input", "/kaggle/working")
     print(result.translated_dir)    # /kaggle/working/dich
-    print(result.zip_path)          # /kaggle/working/dich.zip
+    print(result.zip_path)          # None mặc định; có đường dẫn nếu create_zip=True
     print(result.book_stats)        # Thống kê các sách
+    # Xem dich_annotated/<sach>.annotated.txt để Ctrl+F CHUNK 000006
+    # Xem dich_index/<sach>.tsv để biết số dòng/ký tự Hán gốc và bản dịch.
 
 Trước khi dùng, cài thư viện::
 
@@ -31,6 +33,9 @@ Lưu ý:
 - Prompt mặc định theo notebook gốc, chuyên sách Y học cổ truyền.
 - Để đổi prompt, truyền ``system_prompt=...`` và ``user_prompt=...`` vào class;
   user_prompt bắt buộc chứa chuỗi ``{text}``.
+- Kaggle Save Version: dùng previous_translation_dir= đường dẫn Add Input của
+  output lần dịch trước để nạp checkpoint; giữ nguyên model/prompt/chunk_chars.
+- Xem dich_index/<sach>.tsv và dich_annotated/<sach>.annotated.txt để tra cứu.
 - Checkpoint ở work_dir/dich_raw; đổi model/prompt thì dùng work_dir mới
   (checkpoint cũ không ghi model/prompt nên không tự nhận biết khác biệt).
 - Import package không tự tải model hoặc chạy GPU.
@@ -85,14 +90,25 @@ class HanVietTranslator:
         *,
         limit: int | None = None,
         budget_h: float | None = None,
+        book_names: str | list[str] | tuple[str, ...] | None = None,
+        create_zip: bool = False,
+        allow_cpu: bool = False,
+        previous_translation_dir: str | Path | None = None,
     ) -> TranslationResult:
-        """Dịch các file .txt chữ Hán, lưu checkpoint và xuất kết quả .txt + ZIP.
+        """Dịch các file .txt chữ Hán, lưu checkpoint và xuất kết quả .txt.
 
         Args:
             input_dir: Thư mục chứa *.txt (tìm đệ quy).
             work_dir: Thư mục lưu kết quả, file tạm và checkpoint.
             limit: Chạy thử tối đa N đoạn CHƯA DỊCH trên tất cả các sách.
                    Nếu None: dịch toàn bộ các đoạn còn thiếu.
+            book_names: Tên sách (không có .txt) cần dịch, hoặc danh sách tên sách.
+                        None nghĩa là dịch tất cả file TXT Hán trong input_dir.
+            create_zip: Nếu True, xuất thêm ZIP; mặc định không tạo ZIP.
+            allow_cpu: Chạy một worker trên CPU nếu không có GPU (rất chậm,
+                       chỉ phù hợp test với model nhỏ).
+            previous_translation_dir: Output dịch của lần Save Version trước
+                        (Kaggle Add Input). Chỉ nạp checkpoint; không chép TXT gốc.
             budget_h: Giới hạn thời gian chạy worker, đơn vị giờ.
                       Mặc định config.budget_h = 10.5.
 
@@ -103,7 +119,7 @@ class HanVietTranslator:
 
             tool.translate("/kaggle/input", "/kaggle/working", limit=2)
             result = tool.translate("/kaggle/input", "/kaggle/working")
-            print(result.zip_path)
+            print(result.translated_dir)
         """
         if limit is not None and limit < 1:
             raise ValueError("limit phải >= 1 hoặc None")
@@ -117,7 +133,7 @@ class HanVietTranslator:
         checkpoint_dir = work_dir / "dich_raw"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        books = prepare_books(input_dir, self.config.chunk_chars)
+        books = _choose_books(prepare_books(input_dir, self.config.chunk_chars), book_names)
         chunks = [row for book in books.values() for row in book]
         prompt_path = work_dir / "prompt.json"
         prompt_path.write_text(
@@ -130,6 +146,13 @@ class HanVietTranslator:
 
         # Đọc checkpoint phiên trước, cả trong work_dir và Kaggle Add Input.
         import_previous_checkpoints(input_dir, checkpoint_dir)
+        if previous_translation_dir is not None:
+            previous = Path(previous_translation_dir)
+            if previous.name == "dich_raw":
+                previous = previous.parent
+            if not previous.is_dir():
+                raise FileNotFoundError(f"Không tìm thấy output lần dịch trước: {previous}")
+            import_previous_checkpoints(previous, checkpoint_dir)
         done_ids = set(load_translations(checkpoint_dir))
         pending = [row for row in chunks if row["id"] not in done_ids]
         if limit is not None:
@@ -141,12 +164,16 @@ class HanVietTranslator:
         errors: list[str] = []
         if pending:
             gpu_count = _count_gpus()
-            if gpu_count < self.config.gpu_per_model:
+            if gpu_count < self.config.gpu_per_model and not (allow_cpu and gpu_count == 0):
                 raise RuntimeError(
                     f"Cần {self.config.gpu_per_model} GPU, nhưng chỉ phát hiện {gpu_count}. "
                     "Kaggle: Settings > Accelerator > GPU T4 x2. "
                     "Hoặc chọn model nhỏ hơn với gpu_per_model=1."
                 )
+            if gpu_count == 0:
+                if self.config.load_4bit:
+                    raise ValueError("load_4bit=True không hỗ trợ CPU; hãy tắt 4-bit")
+                print("CẢNH BÁO: dùng CPU, nên chọn model <=1.5B, batch=1 và limit nhỏ.")
             _setup_hf_token()
             if self.config.predownload_model:
                 _download_model(self.config.model)
@@ -155,12 +182,12 @@ class HanVietTranslator:
             write_jsonl(pending_path, pending)
             errors = _launch_workers(
                 pending_path, prompt_path, checkpoint_dir, self.config,
-                budget_h, gpu_count,
+                budget_h, gpu_count, allow_cpu=allow_cpu,
             )
         else:
             print("Không còn đoạn cần dịch; dùng checkpoint hiện có.")
 
-        result = export_translations(books, checkpoint_dir, work_dir)
+        result = export_translations(books, checkpoint_dir, work_dir, create_zip=create_zip)
         result.worker_errors.extend(errors)
         return result
 
@@ -171,25 +198,51 @@ class HanVietTranslator:
         *,
         limit: int | None = None,
         budget_h: float | None = None,
+        book_names: str | list[str] | tuple[str, ...] | None = None,
+        create_zip: bool = False,
+        allow_cpu: bool = False,
+        previous_translation_dir: str | Path | None = None,
     ) -> TranslationResult:
         """Tên thay thế cho ``translate()`` nếu muốn rõ đang dịch nhiều file."""
-        return self.translate(input_dir, work_dir, limit=limit, budget_h=budget_h)
+        return self.translate(input_dir, work_dir, limit=limit, budget_h=budget_h,
+                              book_names=book_names, create_zip=create_zip,
+                              allow_cpu=allow_cpu,
+                              previous_translation_dir=previous_translation_dir)
 
     def export_only(
         self,
         input_dir: str | Path = "/kaggle/input",
         work_dir: str | Path = "/kaggle/working",
+        *,
+        book_names: str | list[str] | tuple[str, ...] | None = None,
+        create_zip: bool = False,
     ) -> TranslationResult:
         """Xuất lại sách từ checkpoint đã có, không cần CUDA/LLM.
 
         Phải giữ ``chunk_chars`` giống lúc dịch để ID đoạn khớp.
         """
         input_dir, work_dir = Path(input_dir), Path(work_dir)
-        books = prepare_books(input_dir, self.config.chunk_chars)
+        books = _choose_books(prepare_books(input_dir, self.config.chunk_chars), book_names)
         checkpoint_dir = work_dir / "dich_raw"
         import_previous_checkpoints(input_dir, checkpoint_dir)
-        return export_translations(books, checkpoint_dir, work_dir)
+        return export_translations(books, checkpoint_dir, work_dir, create_zip=create_zip)
 
+
+
+def _choose_books(books: dict[str, list[dict[str, str]]],
+                  book_names: str | list[str] | tuple[str, ...] | None
+                  ) -> dict[str, list[dict[str, str]]]:
+    """Lọc chính xác sách theo tên để tránh vô tình dịch toàn Kaggle Input."""
+    if book_names is None:
+        return books
+    selected = [book_names] if isinstance(book_names, str) else list(book_names)
+    if not selected or any(not isinstance(n, str) or not n.strip() for n in selected):
+        raise ValueError("book_names phải chứa tên sách hợp lệ")
+    names = set(selected)
+    missing = names - books.keys()
+    if missing:
+        raise ValueError(f"Không tìm thấy sách {sorted(missing)}. Sách có sẵn: {list(books)}")
+    return {name: rows for name, rows in books.items() if name in names}
 
 def _count_gpus() -> int:
     """Đếm GPU khả dụng qua nvidia-smi mà không import torch khi chỉ inspect."""
@@ -229,13 +282,15 @@ def _launch_workers(
     config: TranslationConfig,
     budget_h: float,
     gpu_count: int,
+    *, allow_cpu: bool = False,
 ) -> list[str]:
     """Mỗi worker chạy một model trên nhóm GPU riêng, ghi checkpoint JSONL.
 
     Dùng ``python -c '... worker_main()'`` để import bằng đường dẫn package,
     không cần tạo file dich_worker.py riêng như notebook gốc.
     """
-    count = gpu_count // config.gpu_per_model
+    count = (1 if allow_cpu and gpu_count == 0 else
+             gpu_count // config.gpu_per_model)
     package_parent = str(Path(__file__).resolve().parent.parent)
     inherited_pythonpath = os.environ.get("PYTHONPATH", "")
     pythonpath = os.pathsep.join(p for p in (package_parent, inherited_pythonpath) if p)
@@ -245,12 +300,12 @@ def _launch_workers(
 
     try:
         for shard in range(count):
-            visible_devices = ",".join(
+            visible_devices = (",".join(
                 str(i) for i in range(shard * config.gpu_per_model, (shard + 1) * config.gpu_per_model)
-            )
+            ) if gpu_count else "")
             command = [
                 sys.executable, "-c",
-                "from han_viet_translator.HanVietTranslator import worker_main; worker_main()",
+                f"from {__package__}.HanVietTranslator import worker_main; worker_main()",
                 "--model", config.model,
                 "--chunks", str(chunks_path),
                 "--prompt", str(prompt_path),
@@ -397,7 +452,15 @@ def _worker(args: argparse.Namespace) -> None:
                 hit_max = not ended and len(raw) >= args.max_new
                 last_vi = tokenizer.decode(tokens, skip_special_tokens=True).strip()
                 out.write(json.dumps(
-                    {"id": row["id"], "vi": last_vi, "hit_max": hit_max},
+                    {
+                        "id": row["id"], "vi": last_vi, "hit_max": hit_max,
+                        "chunk_index": row.get("chunk_index"),
+                        "source_file": row.get("source_file"),
+                        "source_start": row.get("source_start"),
+                        "source_end": row.get("source_end"),
+                        "source_line_start": row.get("source_line_start"),
+                        "source_line_end": row.get("source_line_end"),
+                    },
                     ensure_ascii=False,
                 ) + "\n")
             out.flush()  # Chạy lại sẽ tự bỏ qua batch đã ghi.

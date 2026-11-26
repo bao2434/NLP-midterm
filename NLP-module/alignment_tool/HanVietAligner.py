@@ -65,6 +65,7 @@ import os
 import re
 import time
 import zipfile
+import unicodedata
 from collections import defaultdict
 from shutil import copy2
 import math
@@ -77,6 +78,7 @@ import requests
 
 DEFAULT_BASE_URL = "https://kimhannom.fit.hcmus.edu.vn"
 DEFAULT_ENDPOINT = "/api/web/clc-sinonom/sentence-alignment"
+API_RESEGMENTATION_MAPPING_VERSION = 1  # Notebook kiểm tra tránh dùng module Kaggle cũ
 
 
 class AlignmentError(RuntimeError):
@@ -154,6 +156,8 @@ class HanVietAligner:
         self.session = requests.Session()
         self._last_request_monotonic: float | None = None
         self._quota_path: Path | None = None
+        self.last_response: dict[str, Any] | None = None
+        self.last_trace: dict[str, Any] | None = None
 
     @property
     def api_url(self) -> str:
@@ -376,6 +380,8 @@ class HanVietAligner:
         if not isinstance(data, dict) or not isinstance(data.get("result"), list):
             raise AlignmentError("API response thiếu data.result (list)")
         rows, trace = _parse_api_result(data["result"], han_units, vi_units)
+        self.last_response = response_obj
+        self.last_trace = trace
         return rows, trace
 
     def _reserve_quota(self) -> None:
@@ -576,48 +582,198 @@ def _split_units(text: str, mode: str, language: str) -> list[str]:
     return result
 
 
+def _compact_alignment_text(text: str) -> str:
+    """Chuẩn hoá để ĐỐI CHIẾU vị trí, không thay đổi dữ liệu xuất.
+
+    API có thể chia lại câu và thêm/bớt khoảng trắng giữa câu; chỉ bỏ
+    whitespace và NFC, TUYỆT ĐỐI không bỏ dấu câu hoặc tự sửa chữ.
+    """
+    return "".join(unicodedata.normalize("NFC", text).split())
+
+
+def _api_score(value: Any, index: int) -> float | None:
+    if value is None:
+        return None
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise AlignmentError(f"result[{index}].score không phải số") from exc
+    return score if math.isfinite(score) else None
+
+
+def _api_text_index_mapping(
+    items: list[dict[str, Any]], units: list[str], field: str, language: str
+) -> tuple[list[tuple[int, ...]], dict[str, Any]]:
+    """Ánh xạ API text segments -> chỉ số unit gốc theo span ký tự liên tục.
+
+    API CLC tự tách lại câu ngay cả khi nhận input mỗi unit một dòng.
+    Do đó các index của API là index của cách TÁCH RIÊNG đó và KHÔNG thể
+    trực tiếp dùng làm index của Bertalign / Vecalign.
+
+    Bắt buộc so khớp nguyên văn (sau khi bỏ whitespace); nếu có thay đổi
+    dấu câu/chữ, thất bại rõ ràng thay vì đoán bằng fuzzy matching.
+    """
+    normalized_units = [_compact_alignment_text(text) for text in units]
+    if any(not text for text in normalized_units):
+        raise AlignmentError(f"{language}: có unit đầu vào chỉ gồm khoảng trắng")
+
+    offsets: list[tuple[int, int]] = []
+    position = 0
+    for text in normalized_units:
+        offsets.append((position, position + len(text)))
+        position += len(text)
+    source = "".join(normalized_units)
+    cursor = 0
+    matches: list[tuple[int, ...]] = []
+    gaps: list[dict[str, int]] = []
+
+    for i, row in enumerate(items):
+        segment = row.get(field)
+        if not isinstance(segment, str) or not segment.strip():
+            raise AlignmentError(f"result[{i}].{field} thiếu văn bản để ánh xạ về {language}")
+        needle = _compact_alignment_text(segment)
+        start = source.find(needle, cursor)
+        if start < 0:
+            raise AlignmentError(
+                f"result[{i}].{field} KHÔNG khớp liên tục với {language} đầu vào "
+                f"sau vị trí {cursor}; không tự đoán/fuzzy. "
+                f"Đoạn: {segment[:70]!r}"
+            )
+        end = start + len(needle)
+        indices = tuple(
+            j for j, (lo, hi) in enumerate(offsets)
+            if lo < end and hi > start
+        )
+        if not indices:
+            raise AlignmentError(f"result[{i}].{field} không trùng unit {language} nào")
+        if start > cursor:
+            gaps.append({"start": cursor, "end": start})
+        matches.append(indices)
+        cursor = end
+
+    if cursor < len(source):
+        gaps.append({"start": cursor, "end": len(source)})
+    return matches, {
+        "covered_chars": sum(len(_compact_alignment_text(item[field])) for item in items),
+        "total_chars": len(source),
+        "unmatched_character_ranges": gaps,
+    }
+
+
 def _parse_api_result(
     items: list[Any], han_units: list[str], vi_units: list[str]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    output: list[dict[str, Any]] = []
-    used_h: set[int] = set()
-    used_v: set[int] = set()
+    """Quy đổi API về ĐÚNG các unit đã cung cấp cho ba phương pháp.
+
+    Ưu tiên so khớp trường han_text / vietnamese_text (API tự phân đoạn lại);
+    chỉ dùng trực tiếp native index khi response KHÔNG có nội dung và index
+    thực sự nằm trong giới hạn input. Những kết quả bị mất/đổi chữ sẽ báo lỗi.
+    """
+    checked: list[dict[str, Any]] = []
     prev_h = prev_v = -1
     for i, row in enumerate(items):
         if not isinstance(row, dict):
             raise AlignmentError(f"result[{i}] không phải object")
+        keys = ("han_start", "han_end", "vi_start", "vi_end")
         try:
-            hs, he, vs, ve = [row[k] for k in ("han_start", "han_end", "vi_start", "vi_end")]
+            hs, he, vs, ve = (row[k] for k in keys)
         except KeyError as exc:
             raise AlignmentError(f"result[{i}] thiếu index {exc}") from exc
-        if not all(type(index) is int for index in (hs, he, vs, ve)):
+        if not all(type(value) is int for value in (hs, he, vs, ve)):
             raise AlignmentError(f"result[{i}] có index không phải số nguyên")
-        if not (0 <= hs <= he < len(han_units) and 0 <= vs <= ve < len(vi_units)):
-            raise AlignmentError(f"result[{i}] có index vượt phạm vi hoặc thiếu một vế")
+        if not (0 <= hs <= he and 0 <= vs <= ve):
+            raise AlignmentError(f"result[{i}] có index rỗng hoặc đảo chiều")
         if hs <= prev_h or vs <= prev_v:
-            raise AlignmentError(f"result[{i}] đảo thứ tự hoặc dùng trùng câu; cần rà soát API")
+            raise AlignmentError(f"result[{i}] native index đảo thứ tự hoặc trùng; cần rà soát")
         prev_h, prev_v = he, ve
-        used_h.update(range(hs, he + 1))
-        used_v.update(range(vs, ve + 1))
-        score = row.get("score")
-        if score is not None:
-            try:
-                score = float(score)
-            except (TypeError, ValueError) as exc:
-                raise AlignmentError(f"result[{i}].score không phải số") from exc
-            if not math.isfinite(score):
-                score = None
+        checked.append(row)
+
+    if not checked:
+        return [], {"mapping_mode": "empty", "unmatched_han_indices": list(range(len(han_units))),
+                    "unmatched_vi_indices": list(range(len(vi_units)))}
+
+    text_present = any("han_text" in row or "vietnamese_text" in row for row in checked)
+    if text_present:
+        if not all("han_text" in row and "vietnamese_text" in row for row in checked):
+            raise AlignmentError("API trả text không đồng nhất giữa các hàng; không thể ánh xạ an toàn")
+        h_maps, h_info = _api_text_index_mapping(checked, han_units, "han_text", "han")
+        v_maps, v_info = _api_text_index_mapping(checked, vi_units, "vietnamese_text", "vi")
+        mapping_mode = "verified_text_offsets"
+    else:
+        # Fallback chỉ khi API không cung cấp text để đối chiếu; giữ contract cũ.
+        for i, row in enumerate(checked):
+            if row["han_end"] >= len(han_units) or row["vi_end"] >= len(vi_units):
+                raise AlignmentError(
+                    f"result[{i}] vượt phạm vi và không có text để ánh xạ; dừng an toàn"
+                )
+        h_maps = [tuple(range(row["han_start"], row["han_end"] + 1)) for row in checked]
+        v_maps = [tuple(range(row["vi_start"], row["vi_end"] + 1)) for row in checked]
+        h_info = v_info = None
+        mapping_mode = "native_indices_without_text_verification"
+
+    # Khi API chia nhỏ 1 unit thuốc thành nhiều hàng, các bead trùng/overlap.
+    # Gộp từng chuỗi kề nhau có chung H hoặc V thành một bead n-m.
+    # Không gộp 2 bead rời rạc, vì làm vậy sẽ tạo ra cặp không có bằng chứng.
+    grouped: list[dict[str, Any]] = []
+    for i, (h_ids, v_ids) in enumerate(zip(h_maps, v_maps)):
+        hset, vset = set(h_ids), set(v_ids)
+        score = _api_score(checked[i].get("score"), i)
+        if grouped and (
+            hset.intersection(grouped[-1]["h_ids"])
+            or vset.intersection(grouped[-1]["v_ids"])
+        ):
+            current = grouped[-1]
+            current["h_ids"] = sorted(set(current["h_ids"]) | hset)
+            current["v_ids"] = sorted(set(current["v_ids"]) | vset)
+            current["source_rows"].append(i)
+            current["scores"].append(score)
+        else:
+            grouped.append({"h_ids": list(h_ids), "v_ids": list(v_ids),
+                            "source_rows": [i], "scores": [score]})
+
+    used_h: set[int] = set()
+    used_v: set[int] = set()
+    prev_h = prev_v = -1
+    output: list[dict[str, Any]] = []
+    for group in grouped:
+        hs, he = group["h_ids"][0], group["h_ids"][-1]
+        vs, ve = group["v_ids"][0], group["v_ids"][-1]
+        # Fail closed với nhóm chéo nhau/không liền nhau sau khi quy đổi.
+        if (group["h_ids"] != list(range(hs, he + 1))
+            or group["v_ids"] != list(range(vs, ve + 1))
+            or hs <= prev_h or vs <= prev_v
+            or used_h.intersection(group["h_ids"])
+            or used_v.intersection(group["v_ids"])):
+            raise AlignmentError(
+                f"API sau quy đổi có cặp trùng/chéo/không liên tục: "
+                f"H={group['h_ids']} V={group['v_ids']}; cần kiểm tra thủ công"
+            )
+        used_h.update(group["h_ids"])
+        used_v.update(group["v_ids"])
+        prev_h, prev_v = he, ve
+        scores = [score for score in group["scores"] if score is not None]
         output.append({
             "han": " ".join(han_units[hs:he + 1]),
             "vi": " ".join(vi_units[vs:ve + 1]),
-            "score": score,
-            "han_start": hs, "han_end": he, "vi_start": vs, "vi_end": ve,
+            "han_start": hs, "han_end": he,
+            "vi_start": vs, "vi_end": ve,
+            # Giữ score thấp nhất, ưu tiên đánh dấu rà soát khi nhóm có điểm thấp.
+            "score": min(scores) if scores else None,
+            "api_source_rows": group["source_rows"],
             "alignment_type": f"{he - hs + 1}-{ve - vs + 1}",
         })
-    return output, {
+
+    trace = {
+        "mapping_mode": mapping_mode,
+        "api_result_count": len(checked),
+        "mapped_pairs": len(output),
+        "merged_api_rows": len(checked) - len(output),
         "unmatched_han_indices": sorted(set(range(len(han_units))) - used_h),
         "unmatched_vi_indices": sorted(set(range(len(vi_units))) - used_v),
+        "han_text_matching": h_info,
+        "vi_text_matching": v_info,
     }
+    return output, trace
 
 
 def _match_text_files(han_dir: Path, viet_dir: Path) -> dict[str, tuple[Path, Path]]:
