@@ -429,8 +429,12 @@ class EnsembleHanVietAligner:
         self.vec_model = vec_model
         self.overlap_n = overlap_n
         self.batch_size = batch_size
-        self.api_token = api_token
+        cleaned_token = (api_token or "").strip()
+        if cleaned_token.lower().startswith("bearer "):
+            cleaned_token = cleaned_token[7:].strip()
+        self.api_token = cleaned_token or None
         self.api_interval_s = api_interval_s
+        self._api_client: Any = None
         if overlap_n < 1 or batch_size < 1:
             raise ValueError("overlap_n và batch_size phải > 0")
 
@@ -544,10 +548,14 @@ class EnsembleHanVietAligner:
             from HanVietAligner import HanVietAligner, AlignmentError, _parse_api_result
 
         if api_response is None:
-            client = HanVietAligner(token=self.api_token, split_mode="lines",
-                                   min_interval_s=self.api_interval_s)
-            rows = client.align_texts("\n".join(han), "\n".join(vi))
-            self._last_api_trace = client.last_trace
+            if self._api_client is None:
+                self._api_client = HanVietAligner(
+                    token=self.api_token,
+                    split_mode="lines",
+                    min_interval_s=self.api_interval_s,
+                )
+            rows = self._api_client.align_texts("\n".join(han), "\n".join(vi))
+            self._last_api_trace = self._api_client.last_trace
             self._last_api_mode = "LIVE"
         else:
             if not isinstance(api_response, dict):

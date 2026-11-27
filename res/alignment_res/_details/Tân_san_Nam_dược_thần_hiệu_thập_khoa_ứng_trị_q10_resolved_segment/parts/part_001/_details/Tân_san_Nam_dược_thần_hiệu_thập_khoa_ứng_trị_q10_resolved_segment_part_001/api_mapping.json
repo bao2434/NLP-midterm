@@ -1,0 +1,447 @@
+{
+  "mode": "LIVE",
+  "trace": {
+    "mapping_mode": "verified_text_offsets",
+    "api_result_count": 33,
+    "mapped_pairs": 32,
+    "merged_api_rows": 1,
+    "unmatched_han_indices": [
+      55
+    ],
+    "unmatched_vi_indices": [],
+    "han_text_matching": {
+      "covered_chars": 613,
+      "total_chars": 616,
+      "unmatched_character_ranges": [
+        {
+          "start": 467,
+          "end": 470
+        }
+      ]
+    },
+    "vi_text_matching": {
+      "covered_chars": 2255,
+      "total_chars": 2255,
+      "unmatched_character_ranges": []
+    }
+  },
+  "mapped_rows": [
+    {
+      "han": "新刊南篥神效十科應治卷之十體外科此風痺症腫瘍夫腫瘍者。 乃無若腫毒不抅面目手足胸腹等處。 率然掀赤腫硬。 結接疼痛。",
+      "vi": "NAM DƯỢC THẦN HIỆU Mười khoa chữa bệnh QUYỂN X CÁC BÉNH NGOẠI KHOA I ĐƠN SƯNG (vô danh thũng độc) Vô danh thũng độc là chứng độc tu lại, sưng lên không thể gọi tên được, không cứ chó nào, đâu mất, tay chân ngực bụng, bỗng nhiên nỗi đô, sưng cứng kết cục đau nhức, mà không dầu không miệng chứng ấy cũng gọi là hư man, nên tùy chứng mà chọn phương.",
+      "han_start": 0,
+      "han_end": 3,
+      "vi_start": 0,
+      "vi_end": 0,
+      "score": 0.37216070281722635,
+      "api_source_rows": [
+        0
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "但無頭無頂者是也。 又名虛瘍。 宜隨症而求方焉。",
+      "vi": "1.",
+      "han_start": 4,
+      "han_end": 6,
+      "vi_start": 1,
+      "vi_end": 1,
+      "score": -0.007123699360902958,
+      "api_source_rows": [
+        1
+      ],
+      "alignment_type": "3-1"
+    },
+    {
+      "han": "一經治一切腫毒。 松脂入土堨中火熬。 滴水成珠不散者。 四朋銅錄一朋革布子仁二朋半爲末。",
+      "vi": "Kinh trị mọi chứng thũng độc: -Nhưa thông bò vào nội đất, cô cho đạc, nhỏ vào nước không tan, 4 lang Gi động 1 đồng, Hạt thầu dầu 2 đồng rượi.",
+      "han_start": 7,
+      "han_end": 10,
+      "vi_start": 2,
+      "vi_end": 2,
+      "score": 0.3109902279553799,
+      "api_source_rows": [
+        2
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "同入松脂。 攙勾作餅。 敷患处。 甚效。",
+      "vi": "Hai vị cùng tan nhỏ cho nhựa thông vào quầy đều, làm thuốc cao mà dán vào chỗ đau, rất hay.",
+      "han_start": 11,
+      "han_end": 14,
+      "vi_start": 3,
+      "vi_end": 3,
+      "score": 0.2365183022961168,
+      "api_source_rows": [
+        3
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "又方膽赊一个切碎。 石碾破碎炒黃用搖和沆敷之。 乾雨易。",
+      "vi": "-Cóc một con, chạt nhỏ, Vôi dá đập vỡ nát, sao vàng. Hai thứ cùng giả như bùn mà đáp vào, khô lại thay làm đến tiêu hết mụn độc mới thôi.",
+      "han_start": 15,
+      "han_end": 17,
+      "vi_start": 4,
+      "vi_end": 5,
+      "score": 0.20484375580895825,
+      "api_source_rows": [
+        4
+      ],
+      "alignment_type": "3-2"
+    },
+    {
+      "han": "以消為度。",
+      "vi": "2.",
+      "han_start": 18,
+      "han_end": 18,
+      "vi_start": 6,
+      "vi_end": 6,
+      "score": 0.02593126565520279,
+      "api_source_rows": [
+        5
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "一經治瘡腫無頭皂再刺燒爲末。 每服三丶。",
+      "vi": "Kinh trị nhọt sưng không có dầu: -Gai bò kết đốt tán nhỏ Định hương, Đại hội, Đại hoàng, Hạt vòng.",
+      "han_start": 19,
+      "han_end": 20,
+      "vi_start": 7,
+      "vi_end": 7,
+      "score": 0.17527605745707991,
+      "api_source_rows": [
+        6
+      ],
+      "alignment_type": "2-1"
+    },
+    {
+      "han": "酒調下。 兼嚼葵子三五粒。 其處如針刺者爲效。",
+      "vi": "Các vị đều nhau, như chỗ nhọt mới nổi lên mà chưa làm mủ thì dùng dầu mẻ nấu với thuốc trên cho thành cao mà phét vào.",
+      "han_start": 21,
+      "han_end": 23,
+      "vi_start": 8,
+      "vi_end": 8,
+      "score": 0.04925260993214057,
+      "api_source_rows": [
+        7
+      ],
+      "alignment_type": "3-1"
+    },
+    {
+      "han": "又方蛇脫燒灰爲末。 以猪膏和塗。",
+      "vi": "-Xác rắn đốt ra trot tán nhỏ, trơn với mớ heo mà bôi tiêu ngay 3.",
+      "han_start": 24,
+      "han_end": 25,
+      "vi_start": 9,
+      "vi_end": 9,
+      "score": 0.2119709115830997,
+      "api_source_rows": [
+        8
+      ],
+      "alignment_type": "2-1"
+    },
+    {
+      "han": "立消。 一經治瘪腫初起。",
+      "vi": "Kinh trị nhọt độc chạy chỗ này sang chỗ khác.",
+      "han_start": 26,
+      "han_end": 27,
+      "vi_start": 10,
+      "vi_end": 10,
+      "score": 0.10326186499918563,
+      "api_source_rows": [
+        9
+      ],
+      "alignment_type": "2-1"
+    },
+    {
+      "han": "山芥根、木鱉子葉分用好酒唐調之效。",
+      "vi": "-Củ thiên niên kiện, Hạt gậc. Hai vị bằng nhau, mài với rượu ngon mà phét, rất hay. 4.",
+      "han_start": 28,
+      "han_end": 28,
+      "vi_start": 11,
+      "vi_end": 13,
+      "score": 0.2442225767589038,
+      "api_source_rows": [
+        10
+      ],
+      "alignment_type": "1-3"
+    },
+    {
+      "han": "一治腫毒初起。",
+      "vi": "Kinh trị thũng độc mới phát.",
+      "han_start": 29,
+      "han_end": 29,
+      "vi_start": 14,
+      "vi_end": 14,
+      "score": 0.4679701060203678,
+      "api_source_rows": [
+        11
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "山桑存蒂泥者華赤子糯米等分。",
+      "vi": "-Củ khoai mài còn cuống, Hạt thầu dầu, Gạo nếP.",
+      "han_start": 30,
+      "han_end": 30,
+      "vi_start": 15,
+      "vi_end": 15,
+      "score": 0.18683065192955925,
+      "api_source_rows": [
+        12
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "水浸研爛。 敷之即散。",
+      "vi": "Các vị đều nhau cùng ngâm nước mà nghiên nhỏ ra rồi đạt vào là tan ngay.",
+      "han_start": 31,
+      "han_end": 32,
+      "vi_start": 16,
+      "vi_end": 16,
+      "score": 0.30644740474865073,
+      "api_source_rows": [
+        13
+      ],
+      "alignment_type": "2-1"
+    },
+    {
+      "han": "又方白芥子為末。 醋和塗之自散。",
+      "vi": "-Hạt cải trắng tán bột hòa với giấm mà đáp vào, tự tan.",
+      "han_start": 33,
+      "han_end": 34,
+      "vi_start": 17,
+      "vi_end": 17,
+      "score": 0.15229662030357605,
+      "api_source_rows": [
+        14
+      ],
+      "alignment_type": "2-1"
+    },
+    {
+      "han": "又方浮萍搗爛敷之卽消。",
+      "vi": "-Bèo ván giả nát đáp vào là tiêu ngay.",
+      "han_start": 35,
+      "han_end": 35,
+      "vi_start": 18,
+      "vi_end": 18,
+      "score": 0.21274420992344378,
+      "api_source_rows": [
+        15
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "又方醋和豆別棄塗之乃消。",
+      "vi": "-Dầu mẹ cho nước hành vào cô đến thấy sắc đen, nhân lúc còn nóng, đáp vào, tự tiêu. -Giảm hòa với đất trìn dùn mà đáp thì tiêu.",
+      "han_start": 36,
+      "han_end": 36,
+      "vi_start": 19,
+      "vi_end": 20,
+      "score": -0.013951904188958848,
+      "api_source_rows": [
+        16
+      ],
+      "alignment_type": "1-2"
+    },
+    {
+      "han": "又方芭蕉根搗爛塗之。",
+      "vi": "-Củ chuối hột giả nát, đáp vào. 5.",
+      "han_start": 37,
+      "han_end": 37,
+      "vi_start": 21,
+      "vi_end": 22,
+      "score": 0.17586946333099387,
+      "api_source_rows": [
+        17
+      ],
+      "alignment_type": "1-2"
+    },
+    {
+      "han": "一經治毒攻手足腫痛發斷。 蒼耳搗汁潰之。 并以滓敷之立效。",
+      "vi": "Kinh trị độc công ra tay chân sưng đau như muốn gây: Cây kê đầu ngựa giả lấy nước mà ngâm, và lấy bã đáp vào chỗ sưng đau là kiến hiệu ngay.",
+      "han_start": 38,
+      "han_end": 40,
+      "vi_start": 23,
+      "vi_end": 23,
+      "score": 0.3929115340854181,
+      "api_source_rows": [
+        18
+      ],
+      "alignment_type": "3-1"
+    },
+    {
+      "han": "冬春用苗用子。",
+      "vi": "Mùa xuân dung mầm non, mùa đông dung hạt.",
+      "han_start": 41,
+      "han_end": 41,
+      "vi_start": 24,
+      "vi_end": 24,
+      "score": 0.3904167750250242,
+      "api_source_rows": [
+        19
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "又方金銀花連差葉生搖取汁一碗。 煎至八分服之。 以濉敷上。 無鮮者。",
+      "vi": "-Hoa kim ngân, cả cành và lá, giả sống lấy nước 1 bát nấu còn 8 phần cho uống, lấy ba đáp lên, không có thứ tươi thì dung thứ khô, sắc nước cho đặc mà uống công hiệu càng hơn.",
+      "han_start": 42,
+      "han_end": 45,
+      "vi_start": 25,
+      "vi_end": 25,
+      "score": 0.18275136002398973,
+      "api_source_rows": [
+        20
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "用乾水煎濯服。 其功独勝。 又方兇希子仁摇爛塗之效。 又方紅花搗調水绞取汁服。",
+      "vi": "-Hạt thầu dầu giả nát rit vào kiến hiệu ngay -Hồng hoa giả nát, trôn nước vào, vặt lấy nước mà uống, chỉ uống 3 lần là tiêu hết.",
+      "han_start": 46,
+      "han_end": 49,
+      "vi_start": 26,
+      "vi_end": 26,
+      "score": 0.15591278690897056,
+      "api_source_rows": [
+        21
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "不過三服便消。",
+      "vi": "6.",
+      "han_start": 50,
+      "han_end": 50,
+      "vi_start": 27,
+      "vi_end": 27,
+      "score": 0.0018837069324360305,
+      "api_source_rows": [
+        22
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "一經治風毒卒腫急痛。 柳樹皮去粗皮。 取白者搖破。 調酒炒熱熨之效。",
+      "vi": "Kinh trị phong độc bồng nhiên sưng, đau nhức nhõi: -Vỏ cây liễu, cao bò vỏ ngoài lấy vỏ trăng, giả nát hòa với rượu sao nóng, chườm vào chỗ đau, rất công hiệu.",
+      "han_start": 51,
+      "han_end": 54,
+      "vi_start": 28,
+      "vi_end": 28,
+      "score": 0.39136332669203094,
+      "api_source_rows": [
+        23
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "葱根搗爛一二合。 用三年好醋半碗煨蟲。 布巾包熨之。 即消。",
+      "vi": "-Cù hành giả nát, một vài vóc đỏ vào nửa bật giấm thanh để lâu nam, nấu chín, gọi vào vài mà chườm là hết sưng.",
+      "han_start": 56,
+      "han_end": 59,
+      "vi_start": 29,
+      "vi_end": 29,
+      "score": 0.2037799535845877,
+      "api_source_rows": [
+        24
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "又方商陸根竹刀刮取白皮搗爛。 入鹽少許。 敷之。 縛定。",
+      "vi": "-Rễ cây thương lục lấy dao tre cao lấy vỏ trắng giả nát cho vào ít muôi đập vào buộc chạt lui.",
+      "han_start": 60,
+      "han_end": 63,
+      "vi_start": 30,
+      "vi_end": 30,
+      "score": 0.2675387393128236,
+      "api_source_rows": [
+        25
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "日二次易。",
+      "vi": "ngày thay hai lần rất hay.",
+      "han_start": 64,
+      "han_end": 64,
+      "vi_start": 31,
+      "vi_end": 31,
+      "score": 0.34983059246674714,
+      "api_source_rows": [
+        26
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "神效。",
+      "vi": "7.",
+      "han_start": 65,
+      "han_end": 65,
+      "vi_start": 32,
+      "vi_end": 32,
+      "score": 0.057823964746509846,
+      "api_source_rows": [
+        27
+      ],
+      "alignment_type": "1-1"
+    },
+    {
+      "han": "一治風腫。 多痒少痛。 蚕沙空等分。 醋少許。",
+      "vi": "Kinh trị bị phong sưng ngứa nhiều dau ít: -Phân tâm, muối đều bằng nhau, giầm chút ít.",
+      "han_start": 66,
+      "han_end": 69,
+      "vi_start": 33,
+      "vi_end": 33,
+      "score": 0.4380653451398431,
+      "api_source_rows": [
+        28
+      ],
+      "alignment_type": "4-1"
+    },
+    {
+      "han": "同炒热布色熨之。 冷甫易便消。",
+      "vi": "Cùng sao nóng gói vào khăn vài mà chườm, nguội lại thay hết sưng ngay.",
+      "han_start": 70,
+      "han_end": 71,
+      "vi_start": 34,
+      "vi_end": 34,
+      "score": 0.3266514673899319,
+      "api_source_rows": [
+        29
+      ],
+      "alignment_type": "2-1"
+    },
+    {
+      "han": "一治身面卒腫洪大。 鬼絲子一斤。 酒五斤。 浸二三日。 每服近醉。 日三次。",
+      "vi": "8. Kinh trị mình và mặt bồng nhiên sưng to: -Hạt thô tỵ 1 tháng, rượu 5 tháng, ngâm 2.3 ngày, mỗi lần uống cho gần say, ngày uống 3 lần là công hiệu. 9.",
+      "han_start": 72,
+      "han_end": 77,
+      "vi_start": 35,
+      "vi_end": 37,
+      "score": 0.24186947952109394,
+      "api_source_rows": [
+        30,
+        31
+      ],
+      "alignment_type": "6-3"
+    },
+    {
+      "han": "一經治八水肢腫作痛。 胡亦生搗塗之即消。",
+      "vi": "Kinh trị bồng nhiên phát sưng do: -Bã rượu xát vào luôn tuôn thi tiêu. 10. Kinh trị vì lợi nước mà tay chân sưng dau: -Hạt mẹ già sống đập vào thì tiêu hết.",
+      "han_start": 78,
+      "han_end": 79,
+      "vi_start": 38,
+      "vi_end": 40,
+      "score": 0.21377607858728692,
+      "api_source_rows": [
+        32
+      ],
+      "alignment_type": "2-3"
+    }
+  ]
+}

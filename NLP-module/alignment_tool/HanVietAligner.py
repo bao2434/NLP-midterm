@@ -319,11 +319,24 @@ class HanVietAligner:
 
     def _headers(self) -> dict[str, str]:
         headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; HanVietAligner/1.0; academic research)",
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+            ),
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        token = self.config.token or os.environ.get("CLC_API_TOKEN")
+        raw_token = (
+            self.config.token
+            or os.environ.get("KHN_TOKEN")
+            or os.environ.get("CLC_API_TOKEN")
+            or os.environ.get("HAN_NOM_API_TOKEN")
+            or os.environ.get("HANNOM_API_TOKEN")
+            or ""
+        )
+        token = raw_token.strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
         if token:
             headers["Authorization"] = f"Bearer {token}"
         return headers

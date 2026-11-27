@@ -1,0 +1,17 @@
+{
+  "status": "VOTING_READY_REVIEW",
+  "engines_ok": [
+    "api",
+    "bertalign",
+    "vecalign"
+  ],
+  "engines_failed": {},
+  "han_sentences": 80,
+  "vi_sentences": 41,
+  "accepted_pairs": 29,
+  "disagreement_blocks": 2,
+  "review_items": 53,
+  "accepted_han_coverage": 0.8625,
+  "accepted_vi_coverage": 0.8293,
+  "note": "Voting >=2/3 is NOT semantic accuracy >=95%. Manually review and compute gold evaluation."
+}

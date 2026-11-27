@@ -150,10 +150,20 @@ def parse_args() -> argparse.Namespace:
 
     # API options
     parser.add_argument(
+        "--token",
         "--api-token",
+        dest="api_token",
         type=str,
-        default=os.environ.get("CLC_API_TOKEN") or os.environ.get("HAN_NOM_API_TOKEN"),
-        help="Optional Bearer token for CLC API (defaults to CLC_API_TOKEN / HAN_NOM_API_TOKEN).",
+        default=(
+            os.environ.get("KHN_TOKEN")
+            or os.environ.get("CLC_API_TOKEN")
+            or os.environ.get("HAN_NOM_API_TOKEN")
+            or os.environ.get("HANNOM_API_TOKEN")
+        ),
+        help=(
+            "Bearer token for Kim Han-Nom API "
+            "(accepts --token or --api-token; defaults to KHN_TOKEN / CLC_API_TOKEN)."
+        ),
     )
     parser.add_argument(
         "--api-response-dir",
@@ -256,11 +266,27 @@ def main() -> None:
         print("Dry run complete. No alignment engines were executed.")
         return
 
+    raw_token = (args.api_token or "").strip()
+    if raw_token.lower().startswith("bearer "):
+        raw_token = raw_token[7:].strip()
+    cleaned_token = raw_token or None
+
+    if not args.disable_api and args.api_response_dir is None:
+        if cleaned_token:
+            masked = (
+                f"{cleaned_token[:6]}...{cleaned_token[-4:]}"
+                if len(cleaned_token) > 10
+                else "***"
+            )
+            print(f"Using token: {masked}")
+        else:
+            print("WARNING: no token given (--token or KHN_TOKEN).")
+
     aligner = EnsembleHanVietAligner(
         vec_model=args.vec_model,
         overlap_n=args.overlap_n,
         batch_size=args.batch_size,
-        api_token=args.api_token or None,
+        api_token=cleaned_token,
         api_interval_s=args.api_interval,
     )
 
